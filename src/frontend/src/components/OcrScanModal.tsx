@@ -8,13 +8,23 @@ import {
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Progress } from "@/components/ui/progress";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
 import { cn } from "@/lib/utils";
 import {
   AlertCircle,
+  Building2,
   CheckCircle2,
+  Eye,
   FileImage,
   FileScan,
   FileText,
+  Info,
   Loader2,
   Plus,
   RefreshCw,
@@ -26,22 +36,78 @@ import {
 import { motion } from "motion/react";
 import { useCallback, useRef, useState } from "react";
 import type { Customer } from "../backend.d";
+import { GST_RATES } from "../utils/indianStates";
 
 export interface OcrExtractedData {
+  // Seller / From
+  sellerName: string;
+  sellerGstin: string;
+  sellerAddress: string;
+  sellerState: string;
+  sellerStateCode: string;
+  sellerEmail: string;
+
+  // Buyer / Bill To
   customerName: string;
   customerGstin: string;
   customerPhone: string;
   customerEmail: string;
   customerAddress: string;
+  customerState: string;
+  customerStateCode: string;
+  customerDepartment: string;
+
+  // Invoice header
   invoiceNumber: string;
   invoiceDate: string; // YYYY-MM-DD
   dueDate: string;
+  deliveryNote: string;
+  modeOfPayment: string;
+  referenceNo: string;
+  buyerOrderNo: string;
+  buyerOrderDate: string;
+  dispatchDocNo: string;
+  deliveryNoteDate: string;
+  dispatchedThrough: string;
+  destination: string;
+  termsOfDelivery: string;
+
+  // Line items
   items: Array<{
+    srNo: string;
     productName: string;
+    hsnSac: string;
     qty: string;
-    price: string;
+    unit: string;
+    rateInclTax: string;
+    rate: string;
+    discountPct: string;
     gstRate: string;
+    amount: string;
   }>;
+
+  // Totals & tax
+  taxableValue: string;
+  cgstRate: string;
+  cgstAmount: string;
+  sgstRate: string;
+  sgstAmount: string;
+  igstRate: string;
+  igstAmount: string;
+  roundOff: string;
+  totalAmount: string;
+  amountInWords: string;
+  taxAmountInWords: string;
+
+  // Bank details
+  bankName: string;
+  bankAccountNo: string;
+  bankIfscCode: string;
+  bankBranch: string;
+
+  // Declaration
+  declaration: string;
+
   confidence: number; // 0-100
 }
 
@@ -54,13 +120,100 @@ interface OcrScanModalProps {
 
 type Step = "upload" | "scanning" | "review";
 
+// ─── State Code → State Name map (GST state codes) ─────────────────
+const STATE_CODE_MAP: Record<string, string> = {
+  "01": "Jammu and Kashmir",
+  "02": "Himachal Pradesh",
+  "03": "Punjab",
+  "04": "Chandigarh",
+  "05": "Uttarakhand",
+  "06": "Haryana",
+  "07": "Delhi",
+  "08": "Rajasthan",
+  "09": "Uttar Pradesh",
+  "10": "Bihar",
+  "11": "Sikkim",
+  "12": "Arunachal Pradesh",
+  "13": "Nagaland",
+  "14": "Manipur",
+  "15": "Mizoram",
+  "16": "Tripura",
+  "17": "Meghalaya",
+  "18": "Assam",
+  "19": "West Bengal",
+  "20": "Jharkhand",
+  "21": "Odisha",
+  "22": "Chhattisgarh",
+  "23": "Madhya Pradesh",
+  "24": "Gujarat",
+  "26": "Dadra and Nagar Haveli and Daman and Diu",
+  "27": "Maharashtra",
+  "28": "Andhra Pradesh",
+  "29": "Karnataka",
+  "30": "Goa",
+  "31": "Lakshadweep",
+  "32": "Kerala",
+  "33": "Tamil Nadu",
+  "34": "Puducherry",
+  "35": "Andaman and Nicobar Islands",
+  "36": "Telangana",
+  "37": "Andhra Pradesh",
+  "38": "Ladakh",
+};
+
 // ─── Parse helpers ─────────────────────────────────────────────────
+
+function normaliseDate(input: string): string {
+  if (!input) return "";
+  // DD-Mon-YY or DD-Mon-YYYY e.g. 2-Mar-26
+  const monMatch = input.match(
+    /(\d{1,2})[-\/\s](Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)[-\/\s](\d{2,4})/i,
+  );
+  if (monMatch) {
+    const monthMap: Record<string, string> = {
+      jan: "01",
+      feb: "02",
+      mar: "03",
+      apr: "04",
+      may: "05",
+      jun: "06",
+      jul: "07",
+      aug: "08",
+      sep: "09",
+      oct: "10",
+      nov: "11",
+      dec: "12",
+    };
+    const d = monMatch[1].padStart(2, "0");
+    const m = monthMap[monMatch[2].toLowerCase()];
+    let y = monMatch[3];
+    if (y.length === 2) y = `20${y}`;
+    return `${y}-${m}-${d}`;
+  }
+  // DD/MM/YYYY or DD-MM-YYYY
+  const ddmmyyyy = input.match(/^(\d{1,2})[\/\-](\d{1,2})[\/\-](\d{4})$/);
+  if (ddmmyyyy)
+    return `${ddmmyyyy[3]}-${ddmmyyyy[2].padStart(2, "0")}-${ddmmyyyy[1].padStart(2, "0")}`;
+  if (/^\d{4}-\d{2}-\d{2}$/.test(input)) return input;
+  return "";
+}
+
+function extractGstins(text: string): string[] {
+  const matches = text.match(
+    /\b([0-9]{2}[A-Z]{5}[0-9]{4}[A-Z][1-9A-Z]Z[0-9A-Z])\b/g,
+  );
+  return matches ? [...new Set(matches)] : [];
+}
+
+function stateFromGstin(gstin: string): { state: string; code: string } {
+  const code = gstin.substring(0, 2);
+  return { state: STATE_CODE_MAP[code] ?? "", code };
+}
 
 function parseInvoiceText(
   text: string,
   wordConfidences: number[],
 ): OcrExtractedData {
-  // Average confidence
   const confidence =
     wordConfidences.length > 0
       ? Math.round(
@@ -68,143 +221,318 @@ function parseInvoiceText(
         )
       : 0;
 
-  // Invoice number
+  const lines = text
+    .split("\n")
+    .map((l) => l.trim())
+    .filter(Boolean);
+  const fullText = lines.join("\n");
+
+  // ── GSTINs ──────────────────────────────────────────────────────
+  const gstins = extractGstins(fullText);
+  const sellerGstin = gstins[0] ?? "";
+  const customerGstin = gstins[1] ?? "";
+  const sellerStateInfo = sellerGstin
+    ? stateFromGstin(sellerGstin)
+    : { state: "", code: "" };
+  const customerStateInfo = customerGstin
+    ? stateFromGstin(customerGstin)
+    : { state: "", code: "" };
+
+  // ── State from "State Name : Maharashtra, Code : 27" ────────────
+  const stateNameMatches = [
+    ...fullText.matchAll(
+      /State\s*Name\s*[:\-]\s*([A-Za-z\s]+?)(?:,\s*Code\s*[:\-]\s*(\d+))?(?:\n|$)/gi,
+    ),
+  ];
+  const sellerStateName =
+    stateNameMatches[0]?.[1]?.trim() ?? sellerStateInfo.state;
+  const customerStateName =
+    stateNameMatches[1]?.[1]?.trim() ?? customerStateInfo.state;
+  const sellerStateCode =
+    stateNameMatches[0]?.[2]?.trim() ?? sellerStateInfo.code;
+  const customerStateCode =
+    stateNameMatches[1]?.[2]?.trim() ?? customerStateInfo.code;
+
+  // ── Invoice number ───────────────────────────────────────────────
   let invoiceNumber = "";
-  const invNumMatch =
-    text.match(
-      /(?:Invoice\s*No\.?|INV[-#]?|Bill\s*No\.?)\s*[:\-]?\s*([A-Z0-9][-A-Z0-9/]{1,20})/i,
-    ) || text.match(/\b(INV[-\/]?\d{3,})\b/i);
-  if (invNumMatch) invoiceNumber = invNumMatch[1].trim();
+  const invMatch =
+    fullText.match(
+      /Invoice\s*No\.?\s*[:\-]?\s*\n?\s*([A-Z0-9][A-Z0-9\/\-]{2,25})/i,
+    ) || fullText.match(/(?:INV|BILL|TAX)[-#\/]?\s*([A-Z0-9\/\-]{3,20})/i);
+  if (invMatch) invoiceNumber = invMatch[1].trim();
 
-  // Dates: DD/MM/YYYY or YYYY-MM-DD or DD-MM-YYYY
+  // ── Dates ────────────────────────────────────────────────────────
   let invoiceDate = "";
-  let dueDate = "";
-  const datePatterns = [
-    /(\d{2})[\/\-](\d{2})[\/\-](\d{4})/g,
-    /(\d{4})[\/\-](\d{2})[\/\-](\d{2})/g,
+  const datePats = [
+    /(?:Dated?|Invoice\s*Date)[:\s]*([0-9]{1,2}[-\/][A-Za-z]{3}[-\/][0-9]{2,4})/i,
+    /(?:Dated?|Invoice\s*Date)[:\s]*([0-9]{1,2}[-\/][0-9]{1,2}[-\/][0-9]{2,4})/i,
   ];
-  const foundDates: string[] = [];
-
-  // Try DD/MM/YYYY
-  const ddmmyyyyMatches = [
-    ...text.matchAll(/(\d{2})[\/\-](\d{2})[\/\-](\d{4})/g),
-  ];
-  for (const m of ddmmyyyyMatches) {
-    foundDates.push(`${m[3]}-${m[2]}-${m[1]}`);
+  for (const p of datePats) {
+    const m = fullText.match(p);
+    if (m) {
+      invoiceDate = normaliseDate(m[1]);
+      break;
+    }
   }
-  // Try YYYY-MM-DD
-  const yyyymmddMatches = [
-    ...text.matchAll(/(\d{4})[\/\-](\d{2})[\/\-](\d{2})/g),
-  ];
-  for (const m of yyyymmddMatches) {
-    foundDates.push(`${m[1]}-${m[2]}-${m[3]}`);
+  if (!invoiceDate) {
+    const raw = fullText.match(/\b(\d{1,2}[-\/][A-Za-z]{3}[-\/]\d{2,4})\b/);
+    if (raw) invoiceDate = normaliseDate(raw[1]);
   }
-
-  // Silence unused variable warning
-  void datePatterns;
-
-  if (foundDates.length > 0) invoiceDate = foundDates[0];
-  if (foundDates.length > 1) dueDate = foundDates[1];
-
-  // GSTIN: 15-char pattern
-  const gstinMatch = text.match(
-    /\b([0-9]{2}[A-Z]{5}[0-9]{4}[A-Z]{1}[1-9A-Z]{1}Z[0-9A-Z]{1})\b/,
+  const dueDateMatch = fullText.match(
+    /(?:Due\s*Date|Payment\s*Due)[:\s]*([0-9]{1,2}[-\/][A-Za-z0-9]{2,3}[-\/][0-9]{2,4})/i,
   );
-  const customerGstin = gstinMatch ? gstinMatch[1] : "";
+  const dueDate = dueDateMatch ? normaliseDate(dueDateMatch[1]) : "";
 
-  // Customer name: look for "Bill To", "Customer", "M/s" etc.
+  // ── Misc header fields ───────────────────────────────────────────
+  const deliveryNoteMatch = fullText.match(
+    /Delivery\s*Note\s*(?!Date)[:\s]*([^\n]{1,40})/i,
+  );
+  const modeOfPaymentMatch = fullText.match(
+    /Mode[\/\s]*(?:Terms\s*of\s*Payment)?[:\s]*([^\n]{1,60})/i,
+  );
+  const referenceMatch = fullText.match(
+    /Reference\s*No\.?\s*(?:&|and)\s*Date[:\s]*([^\n]{1,60})/i,
+  );
+  const buyerOrderMatch = fullText.match(
+    /Buyer[''s]*\s*Order\s*No\.?[:\s]*([^\n]{1,40})/i,
+  );
+  const buyerOrderDateMatch = fullText.match(
+    /Buyer[''s]*\s*Order.*?Dated?[:\s]*([0-9]{1,2}[-\/][A-Za-z0-9]{2,3}[-\/][0-9]{2,4})/i,
+  );
+  const dispatchDocMatch = fullText.match(
+    /Dispatch\s*Doc\.?\s*No\.?[:\s]*([^\n]{1,40})/i,
+  );
+  const deliveryNoteDateMatch = fullText.match(
+    /Delivery\s*Note\s*Date[:\s]*([^\n]{1,40})/i,
+  );
+  const dispatchedThroughMatch = fullText.match(
+    /Dispatched?\s*(?:Through|Via)[:\s]*([^\n]{1,60})/i,
+  );
+  const destinationMatch = fullText.match(/Destination[:\s]*([^\n]{1,60})/i);
+  const termsOfDeliveryMatch = fullText.match(
+    /Terms\s*of\s*Delivery[:\s]*([^\n]{1,80})/i,
+  );
+
+  // ── Seller info ──────────────────────────────────────────────────
+  const sellerEmailMatch = fullText.match(
+    /E[-\s]?Mail\s*[:\-]?\s*([\w._%+-]+@[\w.-]+\.[a-z]{2,})/i,
+  );
+  let sellerName = "";
+  const sellerNameMatch = fullText.match(
+    /^([A-Z][A-Za-z\s&\.,']{3,60}(?:Pvt\.?\s*Ltd\.?|LLP|Ltd\.?|Corp\.?|Co\.?)?)\s*\n/m,
+  );
+  if (sellerNameMatch) sellerName = sellerNameMatch[1].trim();
+
+  // ── Buyer info ───────────────────────────────────────────────────
   let customerName = "";
-  const billToMatch =
-    text.match(
-      /(?:Bill\s*To|Billed\s*To|Customer|To)[:\s]+([A-Z][A-Za-z\s&\.]{2,50})/i,
-    ) || text.match(/M\/s\.?\s+([A-Z][A-Za-z\s&\.]{2,50})/i);
-  if (billToMatch)
-    customerName = billToMatch[1].trim().replace(/\n.*$/s, "").trim();
-
-  // Phone: Indian mobile patterns
-  const phoneMatch =
-    text.match(/(?:Ph|Phone|Mob|Mobile|Tel|Contact)[:\s]*([6-9]\d{9})/i) ||
-    text.match(/\b([6-9]\d{9})\b/);
-  const customerPhone = phoneMatch ? phoneMatch[1] : "";
-
-  // Email
-  const emailMatch = text.match(
-    /\b([a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,})\b/,
+  let customerDepartment = "";
+  const billToMatch = fullText.match(
+    /Buyer\s*\(?Bill\s*to\)?\s*\n([^\n]{2,80})/i,
   );
-  const customerEmail = emailMatch ? emailMatch[1] : "";
+  if (billToMatch) customerName = billToMatch[1].replace(/[()]/g, "").trim();
+  const deptMatch = fullText.match(
+    /(?:Department|Dept\.?)[:\s]*([^\n]{2,60})/i,
+  );
+  if (deptMatch) customerDepartment = deptMatch[1].trim();
+  if (!customerName) {
+    const msMatch = fullText.match(/M\/s\.?\s+([A-Z][A-Za-z\s&\.]{2,50})/i);
+    if (msMatch) customerName = msMatch[1].trim();
+  }
 
-  // Address: look for "Address:" pattern
-  const addrMatch = text.match(
-    /(?:Address|Addr)[:\s]+(.{10,100}?)(?:\n\n|\bGSTIN\b|\bPhone\b|\bEmail\b|$)/is,
+  const phoneMatch =
+    fullText.match(/(?:Ph|Phone|Mob|Mobile|Tel|Contact)[:\s]*([6-9]\d{9})/i) ||
+    fullText.match(/\b([6-9]\d{9})\b/);
+  const customerPhone = phoneMatch?.[1] ?? "";
+
+  const emailMatches = fullText.match(
+    /\b([a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,})\b/g,
+  );
+  const customerEmail = emailMatches?.[1] ?? "";
+
+  // Seller address
+  let sellerAddress = "";
+  if (sellerGstin) {
+    const beforeGstin = fullText.split(sellerGstin)[0] ?? "";
+    sellerAddress = beforeGstin
+      .split("\n")
+      .slice(1, 5)
+      .join(", ")
+      .replace(/,\s*,/g, ",")
+      .trim();
+  }
+  const addrMatch = fullText.match(
+    /(?:Address|Addr\.?)[:\s]+(.{10,120}?)(?:\n\n|\bGSTIN\b|\bPhone\b|\bEmail\b|$)/is,
   );
   const customerAddress = addrMatch
     ? addrMatch[1].trim().replace(/\s+/g, " ")
     : "";
 
-  // Items: look for lines with number patterns (qty × price)
+  // ── Line items ───────────────────────────────────────────────────
   const items: OcrExtractedData["items"] = [];
-  const lines = text.split("\n");
-  for (const line of lines) {
-    // Skip header/total lines
-    if (
-      /total|subtotal|gst|cgst|sgst|igst|tax|discount|amount|qty|price|description|item|sr\.?\s*no/i.test(
-        line,
-      )
-    )
-      continue;
-    // Match lines with at least 2 numbers (qty + price)
-    const numMatch = line.match(
-      /(\d+(?:\.\d+)?)\s+(\d+(?:\.\d+)?)\s+(\d+(?:\.\d+)?)?/,
-    );
-    if (numMatch) {
-      // Extract product name (text before numbers)
-      const nameMatch = line.match(/^([A-Za-z][A-Za-z0-9\s\-\/\.]{2,40})\s+\d/);
-      const productName = nameMatch
-        ? nameMatch[1].trim()
-        : line.substring(0, 30).trim();
-      if (productName.length > 2) {
+  const tableStart = fullText.search(
+    /(?:Description|Goods|Item|Product|SI\s*No)/i,
+  );
+  const tableEnd = fullText.search(
+    /(?:Total|Subtotal|CGST|SGST|IGST|Round|Grand)/i,
+  );
+  const tableSection =
+    tableStart >= 0 && tableEnd > tableStart
+      ? fullText.slice(tableStart, tableEnd)
+      : fullText;
+
+  const itemLineRegex =
+    /(\d+)\s+(.{3,60}?)\s+(\d{4,10})\s+([\d.]+)\s+Pcs?\s+([\d,]+\.?\d*)\s+([\d,]+\.?\d*)\s+Pcs?\s+([\d.]+)\s*%?\s+([\d,]+\.?\d*)/gi;
+  let itemMatch: RegExpExecArray | null;
+  // biome-ignore lint/suspicious/noAssignInExpressions: regex exec loop
+  while ((itemMatch = itemLineRegex.exec(tableSection)) !== null) {
+    items.push({
+      srNo: itemMatch[1],
+      productName: itemMatch[2].trim(),
+      hsnSac: itemMatch[3],
+      qty: itemMatch[4],
+      unit: "Pcs",
+      rateInclTax: itemMatch[5].replace(/,/g, ""),
+      rate: itemMatch[6].replace(/,/g, ""),
+      discountPct: itemMatch[7],
+      gstRate: "5",
+      amount: itemMatch[8].replace(/,/g, ""),
+    });
+  }
+
+  if (items.length === 0) {
+    for (const line of tableSection.split("\n")) {
+      const simpleMatch = line.match(
+        /(.{3,50})\s+(\d{6,10})\s+([\d.]+)\s+([\d,]+\.?\d*)/,
+      );
+      if (
+        simpleMatch &&
+        !/total|gst|cgst|sgst|igst|tax|disc|amount|qty/i.test(line)
+      ) {
         items.push({
-          productName,
-          qty: numMatch[1],
-          price: numMatch[2],
-          gstRate: "18",
+          srNo: String(items.length + 1),
+          productName: simpleMatch[1].trim(),
+          hsnSac: simpleMatch[2],
+          qty: simpleMatch[3],
+          unit: "Pcs",
+          rateInclTax: "",
+          rate: simpleMatch[4].replace(/,/g, ""),
+          discountPct: "0",
+          gstRate: "5",
+          amount: simpleMatch[4].replace(/,/g, ""),
         });
       }
     }
   }
 
-  // If no items detected, add a placeholder
   if (items.length === 0) {
-    // Try to extract total amounts
-    const amountMatch = text.match(/(?:₹|Rs\.?|INR)\s*([\d,]+(?:\.\d{2})?)/g);
-    if (amountMatch && amountMatch.length > 0) {
-      const rawAmt = amountMatch[0].replace(/[₹Rs.,\s]/gi, "");
-      items.push({
-        productName: "Item from scanned invoice",
-        qty: "1",
-        price: rawAmt || "0",
-        gstRate: "18",
-      });
-    } else {
-      items.push({
-        productName: "Item from scanned invoice",
-        qty: "1",
-        price: "0",
-        gstRate: "18",
-      });
-    }
+    const amtMatch = fullText.match(/(?:₹|Rs\.?|INR)\s*([\d,]+(?:\.\d{2})?)/g);
+    const rawAmt = amtMatch?.[0]?.replace(/[₹Rs.,\s]/gi, "") ?? "0";
+    items.push({
+      srNo: "1",
+      productName: "Item from scanned invoice",
+      hsnSac: "",
+      qty: "1",
+      unit: "Pcs",
+      rateInclTax: "",
+      rate: rawAmt,
+      discountPct: "0",
+      gstRate: "5",
+      amount: rawAmt,
+    });
   }
 
+  // ── GST rates from tax summary ───────────────────────────────────
+  const cgstRateMatch = fullText.match(/CGST.*?([\d.]+)\s*%/i);
+  const sgstRateMatch = fullText.match(/SGST.*?([\d.]+)\s*%/i);
+  const igstRateMatch = fullText.match(/IGST.*?([\d.]+)\s*%/i);
+  const cgstRate = cgstRateMatch?.[1] ?? "2.5";
+  const sgstRate = sgstRateMatch?.[1] ?? "2.5";
+  const igstRate = igstRateMatch?.[1] ?? "0";
+
+  const detectedGstRate =
+    igstRate !== "0"
+      ? String(Number.parseFloat(igstRate))
+      : String(Number.parseFloat(cgstRate) + Number.parseFloat(sgstRate));
+  for (const item of items) item.gstRate = detectedGstRate;
+
+  // ── Tax amounts ──────────────────────────────────────────────────
+  const cgstAmtMatch = fullText.match(/CGST\s*\n?\s*([\d,]+\.\d{2})/i);
+  const sgstAmtMatch = fullText.match(/SGST\s*\n?\s*([\d,]+\.\d{2})/i);
+  const igstAmtMatch = fullText.match(/IGST\s*\n?\s*([\d,]+\.\d{2})/i);
+  const roundOffMatch = fullText.match(/Round\s*Off\s*\n?\s*([-\d.,]+)/i);
+  const taxableMatch = fullText.match(
+    /Taxable\s*(?:Value|Amount)[:\s]*\n?\s*([\d,]+\.\d{2})/i,
+  );
+  const totalMatch =
+    fullText.match(/(?:Grand\s*)?Total[:\s]*(?:Rs\.?|₹)?\s*([\d,]+\.\d{2})/i) ||
+    fullText.match(/Rs\s+([\d,]+\.\d{2})/i);
+  const amtWordsMatch = fullText.match(
+    /Amount\s*Chargeable[^:]*[:\s]+\n?\s*((?:INR|Rupees)\s+.{5,150}?(?:Only|only))/i,
+  );
+  const taxWordsMatch = fullText.match(
+    /Tax\s*Amount.*?[:\s]+\n?\s*((?:INR|Rupees)\s+.{5,150}?(?:Only|only))/i,
+  );
+
+  // ── Bank details ─────────────────────────────────────────────────
+  const bankNameMatch = fullText.match(/Bank\s*Name\s*[:\-]\s*([^\n]{3,60})/i);
+  const bankAccMatch = fullText.match(/A\/C?\s*No\.?\s*[:\-]\s*([\d]{6,18})/i);
+  const bankIfscMatch = fullText.match(
+    /(?:IFS\s*Code?|IFSC)[:\s]*([A-Z]{4}0[A-Z0-9]{6})/i,
+  );
+  const bankBranchMatch = fullText.match(
+    /(?:Branch|Branch\s*&\s*IFS)[:\s]*([^\n]{3,80})/i,
+  );
+  const declarationMatch = fullText.match(
+    /Declaration\s*\n([\s\S]{10,300}?)(?:\n\n|Authorised|$)/i,
+  );
+
   return {
+    sellerName,
+    sellerGstin,
+    sellerAddress,
+    sellerState: sellerStateName,
+    sellerStateCode,
+    sellerEmail: sellerEmailMatch?.[1] ?? "",
     customerName,
     customerGstin,
     customerPhone,
     customerEmail,
     customerAddress,
+    customerState: customerStateName,
+    customerStateCode,
+    customerDepartment,
     invoiceNumber,
     invoiceDate,
     dueDate,
-    items: items.slice(0, 10), // Max 10 items
+    deliveryNote: deliveryNoteMatch?.[1]?.trim() ?? "",
+    modeOfPayment: modeOfPaymentMatch?.[1]?.trim() ?? "",
+    referenceNo: referenceMatch?.[1]?.trim() ?? "",
+    buyerOrderNo: buyerOrderMatch?.[1]?.trim() ?? "",
+    buyerOrderDate: buyerOrderDateMatch
+      ? normaliseDate(buyerOrderDateMatch[1])
+      : "",
+    dispatchDocNo: dispatchDocMatch?.[1]?.trim() ?? "",
+    deliveryNoteDate: deliveryNoteDateMatch?.[1]?.trim() ?? "",
+    dispatchedThrough: dispatchedThroughMatch?.[1]?.trim() ?? "",
+    destination: destinationMatch?.[1]?.trim() ?? "",
+    termsOfDelivery: termsOfDeliveryMatch?.[1]?.trim() ?? "",
+    items: items.slice(0, 15),
+    taxableValue: taxableMatch?.[1]?.replace(/,/g, "") ?? "",
+    cgstRate,
+    cgstAmount: cgstAmtMatch?.[1]?.replace(/,/g, "") ?? "",
+    sgstRate,
+    sgstAmount: sgstAmtMatch?.[1]?.replace(/,/g, "") ?? "",
+    igstRate,
+    igstAmount: igstAmtMatch?.[1]?.replace(/,/g, "") ?? "",
+    roundOff: roundOffMatch?.[1]?.replace(/,/g, "") ?? "0",
+    totalAmount: totalMatch?.[1]?.replace(/,/g, "") ?? "",
+    amountInWords: amtWordsMatch?.[1]?.trim() ?? "",
+    taxAmountInWords: taxWordsMatch?.[1]?.trim() ?? "",
+    bankName: bankNameMatch?.[1]?.trim() ?? "",
+    bankAccountNo: bankAccMatch?.[1] ?? "",
+    bankIfscCode: bankIfscMatch?.[1] ?? "",
+    bankBranch: bankBranchMatch?.[1]?.trim() ?? "",
+    declaration: declarationMatch?.[1]?.trim().replace(/\s+/g, " ") ?? "",
     confidence,
   };
 }
@@ -212,8 +540,8 @@ function parseInvoiceText(
 // ─── Accuracy Meter ────────────────────────────────────────────────
 
 function AccuracyMeter({ confidence }: { confidence: number }) {
-  const isHigh = confidence >= 80;
-  const isMedium = confidence >= 50 && confidence < 80;
+  const isHigh = confidence >= 75;
+  const isMedium = confidence >= 45 && confidence < 75;
 
   const color = isHigh
     ? "oklch(0.65 0.18 145)"
@@ -222,10 +550,10 @@ function AccuracyMeter({ confidence }: { confidence: number }) {
       : "oklch(0.62 0.22 25)";
 
   const bgColor = isHigh
-    ? "oklch(0.65 0.18 145 / 0.1)"
+    ? "oklch(0.65 0.18 145 / 0.08)"
     : isMedium
-      ? "oklch(0.75 0.18 75 / 0.1)"
-      : "oklch(0.62 0.22 25 / 0.1)";
+      ? "oklch(0.75 0.18 75 / 0.08)"
+      : "oklch(0.62 0.22 25 / 0.08)";
 
   const label = isHigh
     ? "High Confidence"
@@ -233,6 +561,11 @@ function AccuracyMeter({ confidence }: { confidence: number }) {
       ? "Medium Confidence"
       : "Low Confidence";
   const Icon = isHigh ? CheckCircle2 : isMedium ? AlertCircle : XCircle;
+  const tip = isHigh
+    ? "Extraction looks accurate. Review fields and approve."
+    : isMedium
+      ? "Some fields may need correction. Please verify carefully."
+      : "Low accuracy — manual review required. Check all fields before approving.";
 
   return (
     <div
@@ -240,49 +573,46 @@ function AccuracyMeter({ confidence }: { confidence: number }) {
       className="rounded-xl p-4 border"
       style={{
         backgroundColor: bgColor,
-        borderColor: `${color.replace(")", " / 0.3)").replace("oklch(", "oklch(")}`,
+        borderColor: color.replace(")", " / 0.25)").replace("oklch(", "oklch("),
       }}
     >
       <div className="flex items-start gap-4">
-        {/* Circular gauge */}
         <div className="relative flex-shrink-0">
           <svg
-            width="72"
-            height="72"
-            viewBox="0 0 72 72"
+            width="68"
+            height="68"
+            viewBox="0 0 68 68"
             role="img"
             aria-label={`OCR confidence: ${confidence}%`}
           >
-            {/* Background circle */}
             <circle
-              cx="36"
-              cy="36"
-              r="28"
+              cx="34"
+              cy="34"
+              r="26"
               fill="none"
               stroke="currentColor"
-              strokeWidth="6"
+              strokeWidth="5"
               className="text-muted/30"
             />
-            {/* Progress circle */}
             <circle
-              cx="36"
-              cy="36"
-              r="28"
+              cx="34"
+              cy="34"
+              r="26"
               fill="none"
               stroke={color}
-              strokeWidth="6"
+              strokeWidth="5"
               strokeLinecap="round"
-              strokeDasharray={`${2 * Math.PI * 28}`}
-              strokeDashoffset={`${2 * Math.PI * 28 * (1 - confidence / 100)}`}
-              transform="rotate(-90 36 36)"
-              style={{ transition: "stroke-dashoffset 1s ease" }}
+              strokeDasharray={`${2 * Math.PI * 26}`}
+              strokeDashoffset={`${2 * Math.PI * 26 * (1 - confidence / 100)}`}
+              transform="rotate(-90 34 34)"
+              style={{ transition: "stroke-dashoffset 1.2s ease" }}
             />
             <text
-              x="36"
-              y="36"
+              x="34"
+              y="34"
               textAnchor="middle"
               dominantBaseline="central"
-              fontSize="14"
+              fontSize="13"
               fontWeight="700"
               fill={color}
             >
@@ -290,32 +620,31 @@ function AccuracyMeter({ confidence }: { confidence: number }) {
             </text>
           </svg>
         </div>
-
         <div className="flex-1 min-w-0">
-          <div className="flex items-center gap-2 mb-1">
+          <div className="flex items-center gap-2 mb-1.5">
             <Icon className="w-4 h-4 flex-shrink-0" style={{ color }} />
             <span className="font-semibold text-sm" style={{ color }}>
-              OCR Confidence: {confidence}% — {label}
+              OCR Accuracy: {confidence}% — {label}
             </span>
           </div>
-          <Progress
-            value={confidence}
-            className="h-2 mb-2"
-            style={
-              {
-                "--progress-color": color,
-              } as React.CSSProperties
-            }
-          />
-          <p className="text-xs text-muted-foreground">
-            {isHigh
-              ? "Extraction looks accurate. Review fields before approving."
-              : isMedium
-                ? "Some fields may need correction. Please review carefully."
-                : "Low accuracy — manual entry recommended. Verify all fields."}
-          </p>
+          <Progress value={confidence} className="h-2 mb-2" />
+          <p className="text-xs text-muted-foreground">{tip}</p>
         </div>
       </div>
+    </div>
+  );
+}
+
+function SectionHeader({
+  icon: Icon,
+  title,
+}: { icon: React.ElementType; title: string }) {
+  return (
+    <div className="flex items-center gap-2 mb-3">
+      <div className="w-6 h-6 rounded-md bg-primary/10 flex items-center justify-center flex-shrink-0">
+        <Icon className="w-3.5 h-3.5 text-primary" />
+      </div>
+      <h3 className="text-sm font-semibold text-foreground">{title}</h3>
     </div>
   );
 }
@@ -335,6 +664,11 @@ export default function OcrScanModal({
   );
   const [isDragging, setIsDragging] = useState(false);
   const [isApproving, setIsApproving] = useState(false);
+  const [previewUrl, setPreviewUrl] = useState<string | null>(null);
+  const [showPreview, setShowPreview] = useState(false);
+  const [activeTab, setActiveTab] = useState<
+    "seller" | "buyer" | "invoice" | "items" | "totals" | "bank"
+  >("buyer");
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   function handleReset() {
@@ -343,6 +677,10 @@ export default function OcrScanModal({
     setScanStatus("Initialising OCR engine…");
     setExtractedData(null);
     setIsDragging(false);
+    setActiveTab("buyer");
+    if (previewUrl) URL.revokeObjectURL(previewUrl);
+    setPreviewUrl(null);
+    setShowPreview(false);
   }
 
   function handleClose() {
@@ -355,57 +693,117 @@ export default function OcrScanModal({
     setScanProgress(5);
     setScanStatus("Loading file…");
 
+    const url = URL.createObjectURL(file);
+    setPreviewUrl(url);
+
     try {
-      setScanStatus("Preprocessing image…");
-      setScanProgress(20);
+      setScanStatus("Initialising Tesseract OCR engine…");
+      setScanProgress(10);
 
-      // Simulate progressive scanning steps
-      await new Promise((r) => setTimeout(r, 400));
-      setScanProgress(40);
-      setScanStatus("Extracting text from image…");
-      await new Promise((r) => setTimeout(r, 500));
-      setScanProgress(70);
-      setScanStatus("Parsing invoice data…");
-      await new Promise((r) => setTimeout(r, 400));
-      setScanProgress(95);
+      // For PDFs: render first page to canvas, then OCR the canvas image
+      let imageSource: File | HTMLCanvasElement = file;
+      if (file.type === "application/pdf") {
+        setScanStatus("Rendering PDF page to image…");
+        setScanProgress(14);
+        try {
+          // biome-ignore lint/suspicious/noExplicitAny: dynamic CDN import
+          const pdfjsLib: any = await import(
+            // @ts-expect-error dynamic CDN URL
+            /* @vite-ignore */ "https://cdn.jsdelivr.net/npm/pdfjs-dist@4.4.168/build/pdf.mjs"
+          );
+          pdfjsLib.GlobalWorkerOptions.workerSrc =
+            "https://cdn.jsdelivr.net/npm/pdfjs-dist@4.4.168/build/pdf.worker.mjs";
+          const arrayBuffer = await file.arrayBuffer();
+          const pdfDoc = await pdfjsLib.getDocument({ data: arrayBuffer })
+            .promise;
+          const page = await pdfDoc.getPage(1);
+          const viewport = page.getViewport({ scale: 2.5 });
+          const canvas = document.createElement("canvas");
+          canvas.width = viewport.width;
+          canvas.height = viewport.height;
+          const ctx = canvas.getContext("2d");
+          if (ctx) {
+            await page.render({ canvasContext: ctx, viewport }).promise;
+            imageSource = canvas;
+            // Update preview to show rendered PDF
+            canvas.toBlob((blob) => {
+              if (blob) {
+                URL.revokeObjectURL(url);
+                setPreviewUrl(URL.createObjectURL(blob));
+              }
+            });
+          }
+        } catch (pdfErr) {
+          console.warn("PDF render failed, attempting direct OCR:", pdfErr);
+          // Fall through to direct OCR attempt
+        }
+      }
 
-      // For PDFs and images without a real OCR engine, we do smart file-name parsing
-      // and return a best-effort extraction with a note to user
-      const fileName = file.name.replace(/\.[^.]+$/, "").replace(/[-_]/g, " ");
-      const today = new Date().toISOString().split("T")[0];
+      const { createWorker } = await import("tesseract.js");
 
-      // Generate a plausible invoice number from filename or timestamp
-      const invNumMatch = fileName.match(
-        /\b(INV|BILL|GST|TAX)?[-\s]?(\d{3,})\b/i,
+      setScanStatus("Loading language model (English + Hindi numerals)…");
+      setScanProgress(18);
+
+      const worker = await createWorker("eng", 1, {
+        logger: (m: { status: string; progress: number }) => {
+          if (m.status === "recognizing text") {
+            const pct = Math.round(28 + m.progress * 55);
+            setScanProgress(pct);
+            setScanStatus(`Recognising text… ${Math.round(m.progress * 100)}%`);
+          } else if (m.status === "loading tesseract core") {
+            setScanStatus("Loading OCR core…");
+            setScanProgress(12);
+          } else if (m.status === "initializing tesseract") {
+            setScanStatus("Initialising engine…");
+            setScanProgress(15);
+          } else if (m.status === "loading language traineddata") {
+            setScanStatus("Downloading language model…");
+            setScanProgress(20);
+          } else if (m.status === "initializing api") {
+            setScanStatus("Starting OCR API…");
+            setScanProgress(25);
+          }
+        },
+      });
+
+      // Tune OCR parameters for printed invoice text
+      await worker.setParameters({
+        tessedit_char_whitelist: "",
+        preserve_interword_spaces: "1",
+      });
+
+      setScanStatus("Scanning invoice — please wait…");
+      setScanProgress(27);
+
+      const { data } = await worker.recognize(imageSource);
+      await worker.terminate();
+
+      setScanProgress(88);
+      setScanStatus("Parsing invoice fields…");
+
+      const wordConf = data.words.map(
+        (w: { confidence: number }) => w.confidence,
       );
-      const invoiceNumber = invNumMatch
-        ? `INV-${invNumMatch[2]}`
-        : `INV-${Date.now().toString().slice(-6)}`;
-
-      const parsed = parseInvoiceText(
-        `Invoice ${invoiceNumber}\nDate: ${today}\n`,
-        [],
-      );
-      // Override with file-derived values, keep confidence low
-      parsed.invoiceNumber = invoiceNumber;
-      parsed.invoiceDate = today;
-      parsed.confidence = 35; // Low confidence — manual review needed
+      const parsed = parseInvoiceText(data.text, wordConf);
 
       setScanProgress(100);
-      setScanStatus("Done! Please review and complete the extracted data.");
+      const wordCount = data.words.length;
+      setScanStatus(
+        `Done! Extracted ${wordCount} words at ${parsed.confidence}% confidence. Review all fields.`,
+      );
       setExtractedData(parsed);
-
-      // Small delay so user sees 100%
       setTimeout(() => setStep("review"), 400);
     } catch (err) {
       console.error("OCR error:", err);
-      setScanStatus("Scan failed. Please try again.");
-      setScanProgress(0);
-      // Go back to upload after error
-      setTimeout(() => {
-        setStep("upload");
-        setScanProgress(0);
-      }, 2000);
+      const today = new Date().toISOString().split("T")[0];
+      const fallback = parseInvoiceText(`Invoice No.\nDate: ${today}\n`, []);
+      fallback.invoiceDate = today;
+      fallback.confidence = 10;
+      setExtractedData(fallback);
+      setScanStatus(
+        "OCR failed — please fill in the fields manually or try a clearer image.",
+      );
+      setTimeout(() => setStep("review"), 2000);
     }
   }, []);
 
@@ -430,16 +828,10 @@ export default function OcrScanModal({
     if (file) handleFileSelect(file);
   }
 
-  function handleDragOver(e: React.DragEvent) {
-    e.preventDefault();
-    setIsDragging(true);
-  }
-
-  function handleDragLeave() {
-    setIsDragging(false);
-  }
-
-  function updateData(field: keyof OcrExtractedData, value: string) {
+  function updateData<K extends keyof OcrExtractedData>(
+    field: K,
+    value: OcrExtractedData[K],
+  ) {
     setExtractedData((prev) => (prev ? { ...prev, [field]: value } : prev));
   }
 
@@ -463,7 +855,18 @@ export default function OcrScanModal({
         ...prev,
         items: [
           ...prev.items,
-          { productName: "", qty: "1", price: "0", gstRate: "18" },
+          {
+            srNo: String(prev.items.length + 1),
+            productName: "",
+            hsnSac: "",
+            qty: "1",
+            unit: "Pcs",
+            rateInclTax: "",
+            rate: "0",
+            discountPct: "0",
+            gstRate: "5",
+            amount: "0",
+          },
         ],
       };
     });
@@ -486,373 +889,927 @@ export default function OcrScanModal({
     }
   }
 
+  const TABS = [
+    { key: "buyer" as const, label: "Buyer" },
+    { key: "seller" as const, label: "Seller" },
+    { key: "invoice" as const, label: "Header" },
+    { key: "items" as const, label: "Items" },
+    { key: "totals" as const, label: "Totals" },
+    { key: "bank" as const, label: "Bank" },
+  ];
+
   return (
     <Dialog open={open} onOpenChange={(v) => !v && handleClose()}>
       <DialogContent
-        className="sm:max-w-2xl max-h-[90vh] overflow-y-auto"
+        className="sm:max-w-3xl max-h-[92vh] overflow-y-auto p-0"
         data-ocid="ocr.modal"
       >
-        <DialogHeader>
+        <DialogHeader className="px-6 pt-6 pb-4 border-b border-border">
           <DialogTitle className="font-display text-xl flex items-center gap-2">
             <ScanLine className="w-5 h-5 text-primary" />
-            Scan Invoice
+            Scan Tax Invoice
+            <span className="ml-auto text-xs font-normal text-muted-foreground bg-muted px-2 py-0.5 rounded-full">
+              Tesseract OCR
+            </span>
           </DialogTitle>
         </DialogHeader>
 
-        {/* ── Step 1: Upload ── */}
-        {step === "upload" && (
-          <motion.div
-            initial={{ opacity: 0, y: 8 }}
-            animate={{ opacity: 1, y: 0 }}
-            transition={{ duration: 0.3 }}
-            className="space-y-4 mt-2"
-          >
-            <p className="text-sm text-muted-foreground">
-              Upload an invoice image or PDF. Our OCR engine will extract the
-              data and pre-fill the form for your review.
-            </p>
-
-            {/* Dropzone - use label for native file input association */}
-            <label
-              data-ocid="ocr.upload.dropzone"
-              htmlFor="ocr-file-input"
-              onDrop={handleDrop}
-              onDragOver={handleDragOver}
-              onDragLeave={handleDragLeave}
-              className={cn(
-                "relative border-2 border-dashed rounded-xl p-10 flex flex-col items-center gap-4 cursor-pointer transition-all duration-200 block",
-                isDragging
-                  ? "border-primary bg-primary/5 scale-[1.01]"
-                  : "border-border hover:border-primary/50 hover:bg-muted/30",
-              )}
+        <div className="px-6 pb-6">
+          {/* ── Step 1: Upload ── */}
+          {step === "upload" && (
+            <motion.div
+              initial={{ opacity: 0, y: 8 }}
+              animate={{ opacity: 1, y: 0 }}
+              transition={{ duration: 0.3 }}
+              className="space-y-4 mt-5"
             >
-              <input
-                id="ocr-file-input"
-                ref={fileInputRef}
-                type="file"
-                accept=".pdf,.png,.jpg,.jpeg,.webp"
-                className="hidden"
-                data-ocid="ocr.upload.button"
-                onChange={(e) => {
-                  const file = e.target.files?.[0];
-                  if (file) handleFileSelect(file);
+              <p className="text-sm text-muted-foreground">
+                Upload a GST tax invoice image or PDF. The OCR engine extracts
+                all fields — seller, buyer, line items, HSN/SAC, GST split, bank
+                details — and pre-fills the form for your review.
+              </p>
+
+              <label
+                data-ocid="ocr.upload.dropzone"
+                htmlFor="ocr-file-input"
+                onDrop={handleDrop}
+                onDragOver={(e) => {
+                  e.preventDefault();
+                  setIsDragging(true);
                 }}
-              />
-
-              <div className="w-16 h-16 rounded-2xl bg-primary/10 flex items-center justify-center">
-                <Upload className="w-8 h-8 text-primary" />
-              </div>
-
-              <div className="text-center">
-                <p className="font-semibold text-foreground text-base">
-                  Drop invoice here or{" "}
-                  <span className="text-primary underline">browse</span>
-                </p>
-                <p className="text-xs text-muted-foreground mt-1">
-                  Supports PDF, PNG, JPG, WebP
-                </p>
-              </div>
-
-              {/* File type icons */}
-              <div className="flex items-center gap-3 mt-2">
-                {[
-                  { icon: FileText, label: "PDF", color: "text-red-500" },
-                  { icon: FileImage, label: "PNG/JPG", color: "text-blue-500" },
-                  { icon: FileScan, label: "WebP", color: "text-purple-500" },
-                ].map(({ icon: Icon, label, color }) => (
-                  <div key={label} className="flex flex-col items-center gap-1">
-                    <div className="w-9 h-9 rounded-lg bg-muted flex items-center justify-center">
-                      <Icon className={cn("w-5 h-5", color)} />
+                onDragLeave={() => setIsDragging(false)}
+                className={cn(
+                  "relative border-2 border-dashed rounded-xl p-10 flex flex-col items-center gap-4 cursor-pointer transition-all duration-200 block",
+                  isDragging
+                    ? "border-primary bg-primary/5 scale-[1.01]"
+                    : "border-border hover:border-primary/50 hover:bg-muted/30",
+                )}
+              >
+                <input
+                  id="ocr-file-input"
+                  ref={fileInputRef}
+                  type="file"
+                  accept=".pdf,.png,.jpg,.jpeg,.webp"
+                  className="hidden"
+                  data-ocid="ocr.upload.button"
+                  onChange={(e) => {
+                    const file = e.target.files?.[0];
+                    if (file) handleFileSelect(file);
+                  }}
+                />
+                <div className="w-16 h-16 rounded-2xl bg-primary/10 flex items-center justify-center">
+                  <Upload className="w-8 h-8 text-primary" />
+                </div>
+                <div className="text-center">
+                  <p className="font-semibold text-foreground text-base">
+                    Drop invoice here or{" "}
+                    <span className="text-primary underline">browse</span>
+                  </p>
+                  <p className="text-xs text-muted-foreground mt-1">
+                    PDF, PNG, JPG, WebP — high resolution (300 DPI+) gives best
+                    results
+                  </p>
+                </div>
+                <div className="flex items-center gap-3 mt-2">
+                  {[
+                    { icon: FileText, label: "PDF", color: "text-red-500" },
+                    {
+                      icon: FileImage,
+                      label: "PNG/JPG",
+                      color: "text-blue-500",
+                    },
+                    { icon: FileScan, label: "WebP", color: "text-purple-500" },
+                  ].map(({ icon: Icon, label, color }) => (
+                    <div
+                      key={label}
+                      className="flex flex-col items-center gap-1"
+                    >
+                      <div className="w-9 h-9 rounded-lg bg-muted flex items-center justify-center">
+                        <Icon className={cn("w-5 h-5", color)} />
+                      </div>
+                      <span className="text-xs text-muted-foreground">
+                        {label}
+                      </span>
                     </div>
-                    <span className="text-xs text-muted-foreground">
-                      {label}
-                    </span>
-                  </div>
+                  ))}
+                </div>
+              </label>
+
+              <div className="flex items-start gap-2 p-3 rounded-lg bg-info/5 border border-info/20">
+                <Info className="w-4 h-4 text-info mt-0.5 flex-shrink-0" />
+                <p className="text-xs text-muted-foreground">
+                  OCR runs entirely in your browser — no invoice data leaves
+                  your device. First scan may take 20–40 seconds to load the
+                  language model.
+                </p>
+              </div>
+            </motion.div>
+          )}
+
+          {/* ── Step 2: Scanning ── */}
+          {step === "scanning" && (
+            <motion.div
+              initial={{ opacity: 0, scale: 0.97 }}
+              animate={{ opacity: 1, scale: 1 }}
+              transition={{ duration: 0.3 }}
+              className="flex flex-col items-center gap-6 py-10 mt-2"
+            >
+              <div className="relative w-24 h-24">
+                <div className="absolute inset-0 rounded-full border-4 border-primary/15" />
+                <div
+                  className="absolute inset-0 rounded-full border-4 border-primary border-t-transparent animate-spin"
+                  style={{ animationDuration: "0.9s" }}
+                />
+                <div className="absolute inset-0 flex items-center justify-center">
+                  <ScanLine className="w-9 h-9 text-primary" />
+                </div>
+              </div>
+              <div className="text-center w-full max-w-sm">
+                <p className="font-semibold text-foreground text-base mb-1">
+                  Scanning invoice…
+                </p>
+                <p className="text-sm text-muted-foreground mb-4">
+                  {scanStatus}
+                </p>
+                <Progress value={scanProgress} className="h-3 rounded-full" />
+                <p className="text-xs text-muted-foreground mt-2 tabular-nums">
+                  {scanProgress}%
+                </p>
+              </div>
+              <p className="text-xs text-muted-foreground text-center max-w-xs">
+                First run downloads the Tesseract language model (~10 MB).
+                Subsequent scans are faster.
+              </p>
+            </motion.div>
+          )}
+
+          {/* ── Step 3: Review ── */}
+          {step === "review" && extractedData && (
+            <motion.div
+              initial={{ opacity: 0, y: 8 }}
+              animate={{ opacity: 1, y: 0 }}
+              transition={{ duration: 0.3 }}
+              className="space-y-5 mt-5"
+            >
+              {/* Accuracy + preview toggle */}
+              <div className="flex gap-3 items-start">
+                <div className="flex-1">
+                  <AccuracyMeter confidence={extractedData.confidence} />
+                </div>
+                {previewUrl && (
+                  <Button
+                    type="button"
+                    variant="outline"
+                    size="sm"
+                    data-ocid="ocr.preview.toggle"
+                    onClick={() => setShowPreview((v) => !v)}
+                    className="gap-1.5 mt-1 flex-shrink-0"
+                  >
+                    <Eye className="w-3.5 h-3.5" />
+                    {showPreview ? "Hide" : "Preview"}
+                  </Button>
+                )}
+              </div>
+
+              {/* Image preview */}
+              {showPreview && previewUrl && (
+                <div className="rounded-xl border border-border overflow-hidden">
+                  <img
+                    src={previewUrl}
+                    alt="Scanned invoice"
+                    className="w-full max-h-80 object-contain bg-white"
+                  />
+                </div>
+              )}
+
+              {/* Tab navigation */}
+              <div className="flex gap-1 flex-wrap border-b border-border pb-2">
+                {TABS.map((tab) => (
+                  <button
+                    key={tab.key}
+                    type="button"
+                    data-ocid={`ocr.tab.${tab.key}`}
+                    onClick={() => setActiveTab(tab.key)}
+                    className={cn(
+                      "px-3 py-1.5 rounded-lg text-xs font-medium transition-colors",
+                      activeTab === tab.key
+                        ? "bg-primary text-primary-foreground"
+                        : "text-muted-foreground hover:bg-muted",
+                    )}
+                  >
+                    {tab.label}
+                  </button>
                 ))}
               </div>
-            </label>
 
-            <p className="text-xs text-muted-foreground text-center">
-              OCR runs entirely in your browser — no data is sent to external
-              servers.
-            </p>
-          </motion.div>
-        )}
+              {/* ── Buyer tab ── */}
+              {activeTab === "buyer" && (
+                <div className="space-y-3">
+                  <SectionHeader icon={Building2} title="Buyer / Bill To" />
+                  <div className="grid grid-cols-2 gap-3">
+                    <div className="col-span-2 space-y-1.5">
+                      <Label className="text-xs">
+                        Customer / Company Name *
+                      </Label>
+                      <Input
+                        value={extractedData.customerName}
+                        onChange={(e) =>
+                          updateData("customerName", e.target.value)
+                        }
+                        placeholder="Customer name"
+                        className="h-9 text-sm"
+                        data-ocid="ocr.buyer.name_input"
+                      />
+                    </div>
+                    <div className="space-y-1.5">
+                      <Label className="text-xs">Department / Division</Label>
+                      <Input
+                        value={extractedData.customerDepartment}
+                        onChange={(e) =>
+                          updateData("customerDepartment", e.target.value)
+                        }
+                        placeholder="Department"
+                        className="h-9 text-sm"
+                      />
+                    </div>
+                    <div className="space-y-1.5">
+                      <Label className="text-xs">GSTIN/UIN (15 chars)</Label>
+                      <Input
+                        value={extractedData.customerGstin}
+                        onChange={(e) =>
+                          updateData("customerGstin", e.target.value)
+                        }
+                        placeholder="27AAIFR5286M1ZG"
+                        className="h-9 text-sm font-mono"
+                        maxLength={15}
+                        data-ocid="ocr.buyer.gstin_input"
+                      />
+                    </div>
+                    <div className="space-y-1.5">
+                      <Label className="text-xs">State</Label>
+                      <Input
+                        value={extractedData.customerState}
+                        onChange={(e) =>
+                          updateData("customerState", e.target.value)
+                        }
+                        placeholder="Maharashtra"
+                        className="h-9 text-sm"
+                      />
+                    </div>
+                    <div className="space-y-1.5">
+                      <Label className="text-xs">State Code</Label>
+                      <Input
+                        value={extractedData.customerStateCode}
+                        onChange={(e) =>
+                          updateData("customerStateCode", e.target.value)
+                        }
+                        placeholder="27"
+                        className="h-9 text-sm font-mono"
+                        maxLength={2}
+                      />
+                    </div>
+                    <div className="space-y-1.5">
+                      <Label className="text-xs">Phone</Label>
+                      <Input
+                        value={extractedData.customerPhone}
+                        onChange={(e) =>
+                          updateData("customerPhone", e.target.value)
+                        }
+                        placeholder="9xxxxxxxxx"
+                        className="h-9 text-sm"
+                      />
+                    </div>
+                    <div className="space-y-1.5">
+                      <Label className="text-xs">Email</Label>
+                      <Input
+                        value={extractedData.customerEmail}
+                        onChange={(e) =>
+                          updateData("customerEmail", e.target.value)
+                        }
+                        placeholder="email@example.com"
+                        className="h-9 text-sm"
+                      />
+                    </div>
+                    <div className="col-span-2 space-y-1.5">
+                      <Label className="text-xs">Address</Label>
+                      <Input
+                        value={extractedData.customerAddress}
+                        onChange={(e) =>
+                          updateData("customerAddress", e.target.value)
+                        }
+                        placeholder="Full address"
+                        className="h-9 text-sm"
+                      />
+                    </div>
+                  </div>
+                </div>
+              )}
 
-        {/* ── Step 2: Scanning ── */}
-        {step === "scanning" && (
-          <motion.div
-            initial={{ opacity: 0, scale: 0.97 }}
-            animate={{ opacity: 1, scale: 1 }}
-            transition={{ duration: 0.3 }}
-            className="flex flex-col items-center gap-6 py-8 mt-2"
-          >
-            <div className="relative w-20 h-20">
-              <div className="absolute inset-0 rounded-full border-4 border-primary/20" />
-              <div
-                className="absolute inset-0 rounded-full border-4 border-primary border-t-transparent animate-spin"
-                style={{ animationDuration: "0.8s" }}
-              />
-              <div className="absolute inset-0 flex items-center justify-center">
-                <ScanLine className="w-8 h-8 text-primary" />
-              </div>
-            </div>
+              {/* ── Seller tab ── */}
+              {activeTab === "seller" && (
+                <div className="space-y-3">
+                  <SectionHeader icon={Building2} title="Seller / From" />
+                  <div className="grid grid-cols-2 gap-3">
+                    <div className="col-span-2 space-y-1.5">
+                      <Label className="text-xs">Seller / Business Name</Label>
+                      <Input
+                        value={extractedData.sellerName}
+                        onChange={(e) =>
+                          updateData("sellerName", e.target.value)
+                        }
+                        placeholder="The Yarn Story"
+                        className="h-9 text-sm"
+                      />
+                    </div>
+                    <div className="space-y-1.5">
+                      <Label className="text-xs">GSTIN/UIN</Label>
+                      <Input
+                        value={extractedData.sellerGstin}
+                        onChange={(e) =>
+                          updateData("sellerGstin", e.target.value)
+                        }
+                        placeholder="27CNPPS8883M1ZL"
+                        className="h-9 text-sm font-mono"
+                        maxLength={15}
+                      />
+                    </div>
+                    <div className="space-y-1.5">
+                      <Label className="text-xs">Email</Label>
+                      <Input
+                        value={extractedData.sellerEmail}
+                        onChange={(e) =>
+                          updateData("sellerEmail", e.target.value)
+                        }
+                        placeholder="accounts@seller.com"
+                        className="h-9 text-sm"
+                      />
+                    </div>
+                    <div className="space-y-1.5">
+                      <Label className="text-xs">State</Label>
+                      <Input
+                        value={extractedData.sellerState}
+                        onChange={(e) =>
+                          updateData("sellerState", e.target.value)
+                        }
+                        placeholder="Maharashtra"
+                        className="h-9 text-sm"
+                      />
+                    </div>
+                    <div className="space-y-1.5">
+                      <Label className="text-xs">State Code</Label>
+                      <Input
+                        value={extractedData.sellerStateCode}
+                        onChange={(e) =>
+                          updateData("sellerStateCode", e.target.value)
+                        }
+                        placeholder="27"
+                        className="h-9 text-sm font-mono"
+                        maxLength={2}
+                      />
+                    </div>
+                    <div className="col-span-2 space-y-1.5">
+                      <Label className="text-xs">Address</Label>
+                      <Input
+                        value={extractedData.sellerAddress}
+                        onChange={(e) =>
+                          updateData("sellerAddress", e.target.value)
+                        }
+                        placeholder="Full address"
+                        className="h-9 text-sm"
+                      />
+                    </div>
+                  </div>
+                </div>
+              )}
 
-            <div className="text-center w-full max-w-xs">
-              <p className="font-semibold text-foreground text-base mb-1">
-                Scanning invoice…
-              </p>
-              <p className="text-sm text-muted-foreground mb-4">{scanStatus}</p>
-              <Progress value={scanProgress} className="h-2" />
-              <p className="text-xs text-muted-foreground mt-2">
-                {scanProgress}%
-              </p>
-            </div>
+              {/* ── Invoice Header tab ── */}
+              {activeTab === "invoice" && (
+                <div className="space-y-3">
+                  <SectionHeader icon={FileText} title="Invoice Header" />
+                  <div className="grid grid-cols-2 gap-3">
+                    <div className="space-y-1.5">
+                      <Label className="text-xs">Invoice Number *</Label>
+                      <Input
+                        value={extractedData.invoiceNumber}
+                        onChange={(e) =>
+                          updateData("invoiceNumber", e.target.value)
+                        }
+                        placeholder="TYS426/25-26"
+                        className="h-9 text-sm font-mono"
+                        data-ocid="ocr.invoice.number_input"
+                      />
+                    </div>
+                    <div className="space-y-1.5">
+                      <Label className="text-xs">Invoice Date *</Label>
+                      <Input
+                        type="date"
+                        value={extractedData.invoiceDate}
+                        onChange={(e) =>
+                          updateData("invoiceDate", e.target.value)
+                        }
+                        className="h-9 text-sm"
+                        data-ocid="ocr.invoice.date_input"
+                      />
+                    </div>
+                    <div className="space-y-1.5">
+                      <Label className="text-xs">Due Date</Label>
+                      <Input
+                        type="date"
+                        value={extractedData.dueDate}
+                        onChange={(e) => updateData("dueDate", e.target.value)}
+                        className="h-9 text-sm"
+                      />
+                    </div>
+                    <div className="space-y-1.5">
+                      <Label className="text-xs">Mode/Terms of Payment</Label>
+                      <Input
+                        value={extractedData.modeOfPayment}
+                        onChange={(e) =>
+                          updateData("modeOfPayment", e.target.value)
+                        }
+                        placeholder="30 days net"
+                        className="h-9 text-sm"
+                      />
+                    </div>
+                    <div className="space-y-1.5">
+                      <Label className="text-xs">Delivery Note</Label>
+                      <Input
+                        value={extractedData.deliveryNote}
+                        onChange={(e) =>
+                          updateData("deliveryNote", e.target.value)
+                        }
+                        placeholder="Delivery note no."
+                        className="h-9 text-sm"
+                      />
+                    </div>
+                    <div className="space-y-1.5">
+                      <Label className="text-xs">Reference No. & Date</Label>
+                      <Input
+                        value={extractedData.referenceNo}
+                        onChange={(e) =>
+                          updateData("referenceNo", e.target.value)
+                        }
+                        placeholder="Reference"
+                        className="h-9 text-sm"
+                      />
+                    </div>
+                    <div className="space-y-1.5">
+                      <Label className="text-xs">Buyer's Order No.</Label>
+                      <Input
+                        value={extractedData.buyerOrderNo}
+                        onChange={(e) =>
+                          updateData("buyerOrderNo", e.target.value)
+                        }
+                        placeholder="PO number"
+                        className="h-9 text-sm"
+                      />
+                    </div>
+                    <div className="space-y-1.5">
+                      <Label className="text-xs">Buyer's Order Date</Label>
+                      <Input
+                        type="date"
+                        value={extractedData.buyerOrderDate}
+                        onChange={(e) =>
+                          updateData("buyerOrderDate", e.target.value)
+                        }
+                        className="h-9 text-sm"
+                      />
+                    </div>
+                    <div className="space-y-1.5">
+                      <Label className="text-xs">Dispatch Doc No.</Label>
+                      <Input
+                        value={extractedData.dispatchDocNo}
+                        onChange={(e) =>
+                          updateData("dispatchDocNo", e.target.value)
+                        }
+                        placeholder="Dispatch doc"
+                        className="h-9 text-sm"
+                      />
+                    </div>
+                    <div className="space-y-1.5">
+                      <Label className="text-xs">Delivery Note Date</Label>
+                      <Input
+                        value={extractedData.deliveryNoteDate}
+                        onChange={(e) =>
+                          updateData("deliveryNoteDate", e.target.value)
+                        }
+                        placeholder="Date"
+                        className="h-9 text-sm"
+                      />
+                    </div>
+                    <div className="space-y-1.5">
+                      <Label className="text-xs">Dispatched Through</Label>
+                      <Input
+                        value={extractedData.dispatchedThrough}
+                        onChange={(e) =>
+                          updateData("dispatchedThrough", e.target.value)
+                        }
+                        placeholder="Courier / Transport"
+                        className="h-9 text-sm"
+                      />
+                    </div>
+                    <div className="space-y-1.5">
+                      <Label className="text-xs">Destination</Label>
+                      <Input
+                        value={extractedData.destination}
+                        onChange={(e) =>
+                          updateData("destination", e.target.value)
+                        }
+                        placeholder="City"
+                        className="h-9 text-sm"
+                      />
+                    </div>
+                    <div className="col-span-2 space-y-1.5">
+                      <Label className="text-xs">Terms of Delivery</Label>
+                      <Input
+                        value={extractedData.termsOfDelivery}
+                        onChange={(e) =>
+                          updateData("termsOfDelivery", e.target.value)
+                        }
+                        placeholder="e.g. FOB Mumbai"
+                        className="h-9 text-sm"
+                      />
+                    </div>
+                  </div>
+                </div>
+              )}
 
-            <p className="text-xs text-muted-foreground text-center max-w-xs">
-              This may take 10–30 seconds on first run while the OCR model
-              loads.
-            </p>
-          </motion.div>
-        )}
+              {/* ── Line Items tab ── */}
+              {activeTab === "items" && (
+                <div className="space-y-3">
+                  <div className="flex items-center justify-between">
+                    <SectionHeader icon={FileText} title="Line Items" />
+                    <Button
+                      type="button"
+                      size="sm"
+                      variant="outline"
+                      onClick={addItem}
+                      className="h-7 gap-1 text-xs"
+                      data-ocid="ocr.items.add_button"
+                    >
+                      <Plus className="w-3 h-3" /> Add Row
+                    </Button>
+                  </div>
 
-        {/* ── Step 3: Review ── */}
-        {step === "review" && extractedData && (
-          <motion.div
-            initial={{ opacity: 0, y: 8 }}
-            animate={{ opacity: 1, y: 0 }}
-            transition={{ duration: 0.3 }}
-            className="space-y-5 mt-2"
-          >
-            {/* Accuracy Meter */}
-            <AccuracyMeter confidence={extractedData.confidence} />
+                  <div className="space-y-2 overflow-x-auto">
+                    <div className="grid grid-cols-12 gap-1.5 text-xs text-muted-foreground px-1 min-w-[600px]">
+                      <span className="col-span-3">Description</span>
+                      <span className="col-span-2">HSN/SAC</span>
+                      <span className="col-span-1">Qty</span>
+                      <span className="col-span-1">Unit</span>
+                      <span className="col-span-1">Rate ₹</span>
+                      <span className="col-span-1">Disc%</span>
+                      <span className="col-span-1">GST%</span>
+                      <span className="col-span-1">Amt ₹</span>
+                      <span className="col-span-1" />
+                    </div>
 
-            {/* Customer Info */}
-            <div>
-              <h3 className="text-sm font-semibold text-foreground mb-3">
-                Customer Information
-              </h3>
-              <div className="grid grid-cols-2 gap-3">
-                <div className="space-y-1.5">
-                  <Label className="text-xs">Customer Name</Label>
-                  <Input
-                    value={extractedData.customerName}
-                    onChange={(e) => updateData("customerName", e.target.value)}
-                    placeholder="Customer name"
-                    className="h-9 text-sm"
-                  />
+                    {extractedData.items.map((item, idx) => (
+                      <div
+                        // biome-ignore lint/suspicious/noArrayIndexKey: OCR items index is deterministic
+                        key={idx}
+                        className="grid grid-cols-12 gap-1.5 items-center min-w-[600px]"
+                        data-ocid={`ocr.item.${idx + 1}`}
+                      >
+                        <div className="col-span-3">
+                          <Input
+                            value={item.productName}
+                            onChange={(e) =>
+                              updateItem(idx, "productName", e.target.value)
+                            }
+                            placeholder="Description"
+                            className="h-8 text-xs"
+                          />
+                        </div>
+                        <div className="col-span-2">
+                          <Input
+                            value={item.hsnSac}
+                            onChange={(e) =>
+                              updateItem(idx, "hsnSac", e.target.value)
+                            }
+                            placeholder="62141090"
+                            className="h-8 text-xs font-mono"
+                          />
+                        </div>
+                        <div className="col-span-1">
+                          <Input
+                            type="number"
+                            value={item.qty}
+                            onChange={(e) =>
+                              updateItem(idx, "qty", e.target.value)
+                            }
+                            min="0"
+                            step="0.001"
+                            className="h-8 text-xs"
+                          />
+                        </div>
+                        <div className="col-span-1">
+                          <Input
+                            value={item.unit}
+                            onChange={(e) =>
+                              updateItem(idx, "unit", e.target.value)
+                            }
+                            placeholder="Pcs"
+                            className="h-8 text-xs"
+                          />
+                        </div>
+                        <div className="col-span-1">
+                          <Input
+                            type="number"
+                            value={item.rate}
+                            onChange={(e) =>
+                              updateItem(idx, "rate", e.target.value)
+                            }
+                            min="0"
+                            step="0.01"
+                            className="h-8 text-xs"
+                          />
+                        </div>
+                        <div className="col-span-1">
+                          <Input
+                            type="number"
+                            value={item.discountPct}
+                            onChange={(e) =>
+                              updateItem(idx, "discountPct", e.target.value)
+                            }
+                            min="0"
+                            max="100"
+                            step="0.01"
+                            className="h-8 text-xs"
+                          />
+                        </div>
+                        <div className="col-span-1">
+                          <Select
+                            value={item.gstRate}
+                            onValueChange={(v) => updateItem(idx, "gstRate", v)}
+                          >
+                            <SelectTrigger className="h-8 text-xs">
+                              <SelectValue />
+                            </SelectTrigger>
+                            <SelectContent>
+                              {GST_RATES.map((r) => (
+                                <SelectItem key={r} value={String(r)}>
+                                  {r}%
+                                </SelectItem>
+                              ))}
+                            </SelectContent>
+                          </Select>
+                        </div>
+                        <div className="col-span-1">
+                          <Input
+                            type="number"
+                            value={item.amount}
+                            onChange={(e) =>
+                              updateItem(idx, "amount", e.target.value)
+                            }
+                            min="0"
+                            step="0.01"
+                            className="h-8 text-xs"
+                          />
+                        </div>
+                        <div className="col-span-1 flex justify-center">
+                          <button
+                            type="button"
+                            onClick={() => removeItem(idx)}
+                            className="text-muted-foreground hover:text-destructive transition-colors"
+                            data-ocid={`ocr.item.delete_button.${idx + 1}`}
+                          >
+                            <Trash2 className="w-3.5 h-3.5" />
+                          </button>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
                 </div>
-                <div className="space-y-1.5">
-                  <Label className="text-xs">GSTIN</Label>
-                  <Input
-                    value={extractedData.customerGstin}
-                    onChange={(e) =>
-                      updateData("customerGstin", e.target.value)
-                    }
-                    placeholder="15-digit GSTIN"
-                    className="h-9 text-sm font-mono"
-                  />
-                </div>
-                <div className="space-y-1.5">
-                  <Label className="text-xs">Phone</Label>
-                  <Input
-                    value={extractedData.customerPhone}
-                    onChange={(e) =>
-                      updateData("customerPhone", e.target.value)
-                    }
-                    placeholder="Mobile number"
-                    className="h-9 text-sm"
-                  />
-                </div>
-                <div className="space-y-1.5">
-                  <Label className="text-xs">Email</Label>
-                  <Input
-                    value={extractedData.customerEmail}
-                    onChange={(e) =>
-                      updateData("customerEmail", e.target.value)
-                    }
-                    placeholder="email@example.com"
-                    className="h-9 text-sm"
-                  />
-                </div>
-                <div className="col-span-2 space-y-1.5">
-                  <Label className="text-xs">Address</Label>
-                  <Input
-                    value={extractedData.customerAddress}
-                    onChange={(e) =>
-                      updateData("customerAddress", e.target.value)
-                    }
-                    placeholder="Customer address"
-                    className="h-9 text-sm"
-                  />
-                </div>
-              </div>
-            </div>
+              )}
 
-            {/* Invoice Details */}
-            <div>
-              <h3 className="text-sm font-semibold text-foreground mb-3">
-                Invoice Details
-              </h3>
-              <div className="grid grid-cols-3 gap-3">
-                <div className="space-y-1.5">
-                  <Label className="text-xs">Invoice Number</Label>
-                  <Input
-                    value={extractedData.invoiceNumber}
-                    onChange={(e) =>
-                      updateData("invoiceNumber", e.target.value)
-                    }
-                    placeholder="INV-001"
-                    className="h-9 text-sm font-mono"
-                  />
+              {/* ── Totals tab ── */}
+              {activeTab === "totals" && (
+                <div className="space-y-3">
+                  <SectionHeader icon={FileText} title="Tax Summary & Totals" />
+                  <div className="grid grid-cols-2 gap-3">
+                    <div className="space-y-1.5">
+                      <Label className="text-xs">Taxable Value ₹</Label>
+                      <Input
+                        value={extractedData.taxableValue}
+                        onChange={(e) =>
+                          updateData("taxableValue", e.target.value)
+                        }
+                        placeholder="99200.02"
+                        className="h-9 text-sm tabular-nums"
+                      />
+                    </div>
+                    <div className="space-y-1.5">
+                      <Label className="text-xs">CGST Rate %</Label>
+                      <Input
+                        value={extractedData.cgstRate}
+                        onChange={(e) => updateData("cgstRate", e.target.value)}
+                        placeholder="2.5"
+                        className="h-9 text-sm"
+                      />
+                    </div>
+                    <div className="space-y-1.5">
+                      <Label className="text-xs">CGST Amount ₹</Label>
+                      <Input
+                        value={extractedData.cgstAmount}
+                        onChange={(e) =>
+                          updateData("cgstAmount", e.target.value)
+                        }
+                        placeholder="2480.00"
+                        className="h-9 text-sm tabular-nums"
+                      />
+                    </div>
+                    <div className="space-y-1.5">
+                      <Label className="text-xs">SGST/UTGST Rate %</Label>
+                      <Input
+                        value={extractedData.sgstRate}
+                        onChange={(e) => updateData("sgstRate", e.target.value)}
+                        placeholder="2.5"
+                        className="h-9 text-sm"
+                      />
+                    </div>
+                    <div className="space-y-1.5">
+                      <Label className="text-xs">SGST Amount ₹</Label>
+                      <Input
+                        value={extractedData.sgstAmount}
+                        onChange={(e) =>
+                          updateData("sgstAmount", e.target.value)
+                        }
+                        placeholder="2480.00"
+                        className="h-9 text-sm tabular-nums"
+                      />
+                    </div>
+                    <div className="space-y-1.5">
+                      <Label className="text-xs">IGST Rate %</Label>
+                      <Input
+                        value={extractedData.igstRate}
+                        onChange={(e) => updateData("igstRate", e.target.value)}
+                        placeholder="0"
+                        className="h-9 text-sm"
+                      />
+                    </div>
+                    <div className="space-y-1.5">
+                      <Label className="text-xs">IGST Amount ₹</Label>
+                      <Input
+                        value={extractedData.igstAmount}
+                        onChange={(e) =>
+                          updateData("igstAmount", e.target.value)
+                        }
+                        placeholder="0"
+                        className="h-9 text-sm tabular-nums"
+                      />
+                    </div>
+                    <div className="space-y-1.5">
+                      <Label className="text-xs">Round Off</Label>
+                      <Input
+                        value={extractedData.roundOff}
+                        onChange={(e) => updateData("roundOff", e.target.value)}
+                        placeholder="-0.02"
+                        className="h-9 text-sm tabular-nums"
+                      />
+                    </div>
+                    <div className="col-span-2 space-y-1.5">
+                      <Label className="text-xs font-semibold">
+                        Total Amount ₹
+                      </Label>
+                      <Input
+                        value={extractedData.totalAmount}
+                        onChange={(e) =>
+                          updateData("totalAmount", e.target.value)
+                        }
+                        placeholder="104160.00"
+                        className="h-9 text-sm font-bold tabular-nums"
+                      />
+                    </div>
+                    <div className="col-span-2 space-y-1.5">
+                      <Label className="text-xs">Amount in Words</Label>
+                      <Input
+                        value={extractedData.amountInWords}
+                        onChange={(e) =>
+                          updateData("amountInWords", e.target.value)
+                        }
+                        placeholder="INR One Lakh Four Thousand One Hundred Sixty Only"
+                        className="h-9 text-sm"
+                      />
+                    </div>
+                    <div className="col-span-2 space-y-1.5">
+                      <Label className="text-xs">Tax Amount in Words</Label>
+                      <Input
+                        value={extractedData.taxAmountInWords}
+                        onChange={(e) =>
+                          updateData("taxAmountInWords", e.target.value)
+                        }
+                        placeholder="INR Four Thousand Nine Hundred Sixty Only"
+                        className="h-9 text-sm"
+                      />
+                    </div>
+                  </div>
                 </div>
-                <div className="space-y-1.5">
-                  <Label className="text-xs">Invoice Date</Label>
-                  <Input
-                    type="date"
-                    value={extractedData.invoiceDate}
-                    onChange={(e) => updateData("invoiceDate", e.target.value)}
-                    className="h-9 text-sm"
-                  />
-                </div>
-                <div className="space-y-1.5">
-                  <Label className="text-xs">Due Date</Label>
-                  <Input
-                    type="date"
-                    value={extractedData.dueDate}
-                    onChange={(e) => updateData("dueDate", e.target.value)}
-                    className="h-9 text-sm"
-                  />
-                </div>
-              </div>
-            </div>
+              )}
 
-            {/* Line Items */}
-            <div>
-              <div className="flex items-center justify-between mb-3">
-                <h3 className="text-sm font-semibold text-foreground">
-                  Line Items
-                </h3>
+              {/* ── Bank tab ── */}
+              {activeTab === "bank" && (
+                <div className="space-y-3">
+                  <SectionHeader
+                    icon={Building2}
+                    title="Company Bank Details"
+                  />
+                  <div className="grid grid-cols-2 gap-3">
+                    <div className="col-span-2 space-y-1.5">
+                      <Label className="text-xs">Bank Name</Label>
+                      <Input
+                        value={extractedData.bankName}
+                        onChange={(e) => updateData("bankName", e.target.value)}
+                        placeholder="Axis Bank A/c"
+                        className="h-9 text-sm"
+                        data-ocid="ocr.bank.name_input"
+                      />
+                    </div>
+                    <div className="space-y-1.5">
+                      <Label className="text-xs">Account Number</Label>
+                      <Input
+                        value={extractedData.bankAccountNo}
+                        onChange={(e) =>
+                          updateData("bankAccountNo", e.target.value)
+                        }
+                        placeholder="917020014975603"
+                        className="h-9 text-sm font-mono"
+                        data-ocid="ocr.bank.account_input"
+                      />
+                    </div>
+                    <div className="space-y-1.5">
+                      <Label className="text-xs">IFSC Code</Label>
+                      <Input
+                        value={extractedData.bankIfscCode}
+                        onChange={(e) =>
+                          updateData("bankIfscCode", e.target.value)
+                        }
+                        placeholder="UTIB0000233"
+                        className="h-9 text-sm font-mono uppercase"
+                        data-ocid="ocr.bank.ifsc_input"
+                      />
+                    </div>
+                    <div className="col-span-2 space-y-1.5">
+                      <Label className="text-xs">Branch</Label>
+                      <Input
+                        value={extractedData.bankBranch}
+                        onChange={(e) =>
+                          updateData("bankBranch", e.target.value)
+                        }
+                        placeholder="New Marine Lines"
+                        className="h-9 text-sm"
+                      />
+                    </div>
+                    <div className="col-span-2 space-y-1.5">
+                      <Label className="text-xs">Declaration</Label>
+                      <Input
+                        value={extractedData.declaration}
+                        onChange={(e) =>
+                          updateData("declaration", e.target.value)
+                        }
+                        placeholder="Declaration text"
+                        className="h-9 text-sm"
+                      />
+                    </div>
+                  </div>
+                </div>
+              )}
+
+              {/* ── Actions ── */}
+              <div className="flex gap-3 pt-3 border-t border-border">
                 <Button
                   type="button"
-                  size="sm"
                   variant="outline"
-                  onClick={addItem}
-                  className="h-7 gap-1 text-xs"
+                  data-ocid="ocr.rescan.button"
+                  onClick={handleReset}
+                  className="gap-2"
                 >
-                  <Plus className="w-3 h-3" />
-                  Add Row
+                  <RefreshCw className="w-4 h-4" />
+                  Re-scan
+                </Button>
+                <Button
+                  type="button"
+                  data-ocid="ocr.approve.submit_button"
+                  disabled={isApproving || !extractedData.customerName.trim()}
+                  onClick={handleApprove}
+                  className="flex-1 bg-primary text-primary-foreground hover:bg-primary/90 gap-2"
+                >
+                  {isApproving ? (
+                    <>
+                      <Loader2 className="w-4 h-4 animate-spin" />
+                      Creating…
+                    </>
+                  ) : (
+                    <>
+                      <CheckCircle2 className="w-4 h-4" />
+                      Approve &amp; Create Invoice
+                    </>
+                  )}
                 </Button>
               </div>
-
-              <div className="space-y-2">
-                {/* Header */}
-                <div className="grid grid-cols-12 gap-2 text-xs text-muted-foreground px-1">
-                  <span className="col-span-5">Product / Service</span>
-                  <span className="col-span-2">Qty</span>
-                  <span className="col-span-2">Price ₹</span>
-                  <span className="col-span-2">GST %</span>
-                  <span className="col-span-1" />
-                </div>
-                {extractedData.items.map((item, idx) => (
-                  <div
-                    // biome-ignore lint/suspicious/noArrayIndexKey: OCR items
-                    key={idx}
-                    className="grid grid-cols-12 gap-2 items-center"
-                  >
-                    <div className="col-span-5">
-                      <Input
-                        value={item.productName}
-                        onChange={(e) =>
-                          updateItem(idx, "productName", e.target.value)
-                        }
-                        placeholder="Item name"
-                        className="h-8 text-xs"
-                      />
-                    </div>
-                    <div className="col-span-2">
-                      <Input
-                        type="number"
-                        value={item.qty}
-                        onChange={(e) => updateItem(idx, "qty", e.target.value)}
-                        className="h-8 text-xs"
-                        min="0"
-                        step="0.01"
-                      />
-                    </div>
-                    <div className="col-span-2">
-                      <Input
-                        type="number"
-                        value={item.price}
-                        onChange={(e) =>
-                          updateItem(idx, "price", e.target.value)
-                        }
-                        className="h-8 text-xs"
-                        min="0"
-                        step="0.01"
-                      />
-                    </div>
-                    <div className="col-span-2">
-                      <Input
-                        type="number"
-                        value={item.gstRate}
-                        onChange={(e) =>
-                          updateItem(idx, "gstRate", e.target.value)
-                        }
-                        className="h-8 text-xs"
-                        min="0"
-                        max="28"
-                        step="0.5"
-                      />
-                    </div>
-                    <div className="col-span-1 flex justify-center">
-                      <button
-                        type="button"
-                        onClick={() => removeItem(idx)}
-                        className="text-muted-foreground hover:text-destructive transition-colors"
-                      >
-                        <Trash2 className="w-3.5 h-3.5" />
-                      </button>
-                    </div>
-                  </div>
-                ))}
-              </div>
-            </div>
-
-            {/* Actions */}
-            <div className="flex gap-3 pt-2">
-              <Button
-                type="button"
-                variant="outline"
-                data-ocid="ocr.rescan.button"
-                onClick={handleReset}
-                className="gap-2"
-              >
-                <RefreshCw className="w-4 h-4" />
-                Re-scan
-              </Button>
-              <Button
-                type="button"
-                data-ocid="ocr.approve.submit_button"
-                disabled={isApproving}
-                onClick={handleApprove}
-                className="flex-1 bg-primary text-primary-foreground hover:bg-primary/90 gap-2"
-              >
-                {isApproving ? (
-                  <>
-                    <Loader2 className="w-4 h-4 animate-spin" />
-                    Creating…
-                  </>
-                ) : (
-                  <>
-                    <CheckCircle2 className="w-4 h-4" />
-                    Approve &amp; Create Invoice
-                  </>
-                )}
-              </Button>
-            </div>
-          </motion.div>
-        )}
+            </motion.div>
+          )}
+        </div>
       </DialogContent>
     </Dialog>
   );

@@ -93,8 +93,11 @@ function StatusBadge({ status }: { status: InvoiceStatus }) {
 interface LineItem {
   productId: string;
   productName: string;
+  hsnSac: string;
   qty: string;
+  unit: string;
   price: string;
+  discountPct: string;
   gstRate: string;
 }
 
@@ -113,9 +116,11 @@ function calcGst(
   for (const item of items) {
     const qty = Number.parseFloat(item.qty) || 0;
     const price = Number.parseFloat(item.price) || 0;
+    const disc = Number.parseFloat(item.discountPct) || 0;
+    const discountedPrice = price * (1 - disc / 100);
     const rate = Number.parseFloat(item.gstRate) || 0;
-    const lineTotal = BigInt(Math.round(qty * price * 100));
-    const lineGst = BigInt(Math.round(qty * price * rate));
+    const lineTotal = BigInt(Math.round(qty * discountedPrice * 100));
+    const lineGst = BigInt(Math.round(qty * discountedPrice * rate));
     subtotalPaise += lineTotal;
     gstPaise += lineGst;
   }
@@ -163,7 +168,16 @@ function CreateInvoiceModal({
     dueDate: "",
   });
   const [items, setItems] = useState<LineItem[]>([
-    { productId: "", productName: "", qty: "1", price: "", gstRate: "18" },
+    {
+      productId: "",
+      productName: "",
+      hsnSac: "",
+      qty: "1",
+      unit: "Pcs",
+      price: "",
+      discountPct: "0",
+      gstRate: "18",
+    },
   ]);
   const [errors, setErrors] = useState<Record<string, string>>({});
 
@@ -177,7 +191,16 @@ function CreateInvoiceModal({
         dueDate: "",
       });
       setItems([
-        { productId: "", productName: "", qty: "1", price: "", gstRate: "18" },
+        {
+          productId: "",
+          productName: "",
+          hsnSac: "",
+          qty: "1",
+          unit: "Pcs",
+          price: "",
+          discountPct: "0",
+          gstRate: "18",
+        },
       ]);
       setErrors({});
     }
@@ -202,7 +225,16 @@ function CreateInvoiceModal({
   function addItem() {
     setItems((p) => [
       ...p,
-      { productId: "", productName: "", qty: "1", price: "", gstRate: "18" },
+      {
+        productId: "",
+        productName: "",
+        hsnSac: "",
+        qty: "1",
+        unit: "Pcs",
+        price: "",
+        discountPct: "0",
+        gstRate: "18",
+      },
     ]);
   }
 
@@ -218,6 +250,7 @@ function CreateInvoiceModal({
         const prod = products.find((p) => p.id.toString() === value);
         if (prod) {
           next[idx].productName = prod.name;
+          next[idx].hsnSac = prod.hsnCode ?? "";
           next[idx].price = (Number(prod.sellingPrice) / 100).toString();
           next[idx].gstRate = prod.gstRate.toString();
         }
@@ -400,21 +433,32 @@ function CreateInvoiceModal({
               </Button>
             </div>
 
-            <div className="space-y-2">
+            <div className="space-y-2 overflow-x-auto">
+              {/* Column headers */}
+              <div className="grid grid-cols-12 gap-1.5 text-xs text-muted-foreground px-1 min-w-[640px]">
+                <span className="col-span-3">Product / Description</span>
+                <span className="col-span-2">HSN/SAC</span>
+                <span className="col-span-1">Qty</span>
+                <span className="col-span-1">Unit</span>
+                <span className="col-span-2">Rate ₹</span>
+                <span className="col-span-1">Disc%</span>
+                <span className="col-span-1">GST%</span>
+                <span className="col-span-1" />
+              </div>
               {items.map((item, idx) => (
                 <div
                   // biome-ignore lint/suspicious/noArrayIndexKey: line items order is user-defined
                   key={idx}
-                  className="grid grid-cols-12 gap-2 items-start"
+                  className="grid grid-cols-12 gap-1.5 items-start min-w-[640px]"
                   data-ocid={`invoice_create.item.${idx + 1}`}
                 >
                   {/* Product */}
-                  <div className="col-span-4">
+                  <div className="col-span-3">
                     <Select
                       value={item.productId}
                       onValueChange={(v) => updateItem(idx, "productId", v)}
                     >
-                      <SelectTrigger className="h-9 text-xs">
+                      <SelectTrigger className="h-8 text-xs">
                         <SelectValue placeholder="Product" />
                       </SelectTrigger>
                       <SelectContent>
@@ -431,7 +475,7 @@ function CreateInvoiceModal({
                     </Select>
                     {item.productId === "custom" || !item.productId ? (
                       <Input
-                        className="h-9 mt-1 text-xs"
+                        className="h-8 mt-1 text-xs"
                         placeholder="Item name"
                         value={item.productName}
                         onChange={(e) =>
@@ -440,10 +484,21 @@ function CreateInvoiceModal({
                       />
                     ) : null}
                   </div>
-                  {/* Qty */}
+                  {/* HSN/SAC */}
                   <div className="col-span-2">
                     <Input
-                      className="h-9 text-xs"
+                      className="h-8 text-xs font-mono"
+                      placeholder="HSN/SAC"
+                      value={item.hsnSac}
+                      onChange={(e) =>
+                        updateItem(idx, "hsnSac", e.target.value)
+                      }
+                    />
+                  </div>
+                  {/* Qty */}
+                  <div className="col-span-1">
+                    <Input
+                      className="h-8 text-xs"
                       type="number"
                       min="0"
                       step="0.01"
@@ -452,25 +507,49 @@ function CreateInvoiceModal({
                       onChange={(e) => updateItem(idx, "qty", e.target.value)}
                     />
                   </div>
-                  {/* Price (rupees) */}
-                  <div className="col-span-3">
+                  {/* Unit */}
+                  <div className="col-span-1">
                     <Input
-                      className="h-9 text-xs"
+                      className="h-8 text-xs"
+                      placeholder="Pcs"
+                      value={item.unit}
+                      onChange={(e) => updateItem(idx, "unit", e.target.value)}
+                    />
+                  </div>
+                  {/* Price (rupees) */}
+                  <div className="col-span-2">
+                    <Input
+                      className="h-8 text-xs"
                       type="number"
                       min="0"
                       step="0.01"
-                      placeholder="Price ₹"
+                      placeholder="Rate ₹"
                       value={item.price}
                       onChange={(e) => updateItem(idx, "price", e.target.value)}
                     />
                   </div>
+                  {/* Discount % */}
+                  <div className="col-span-1">
+                    <Input
+                      className="h-8 text-xs"
+                      type="number"
+                      min="0"
+                      max="100"
+                      step="0.01"
+                      placeholder="0"
+                      value={item.discountPct}
+                      onChange={(e) =>
+                        updateItem(idx, "discountPct", e.target.value)
+                      }
+                    />
+                  </div>
                   {/* GST Rate */}
-                  <div className="col-span-2">
+                  <div className="col-span-1">
                     <Select
                       value={item.gstRate}
                       onValueChange={(v) => updateItem(idx, "gstRate", v)}
                     >
-                      <SelectTrigger className="h-9 text-xs">
+                      <SelectTrigger className="h-8 text-xs">
                         <SelectValue />
                       </SelectTrigger>
                       <SelectContent>
@@ -749,15 +828,24 @@ export default function InvoicesPage() {
       return;
     }
 
-    // Step 2: Create invoice
+    // Step 2: Create invoice — apply discount to price before storing
     const invoiceItems: Array<[bigint, string, bigint, bigint, bigint]> =
-      data.items.map((item) => [
-        0n, // no productId
-        item.productName,
-        BigInt(Math.round(Number.parseFloat(item.qty) || 1)),
-        BigInt(Math.round((Number.parseFloat(item.price) || 0) * 100)),
-        BigInt(Math.round(Number.parseFloat(item.gstRate) || 18)),
-      ]);
+      data.items.map((item) => {
+        const price =
+          Number.parseFloat(item.rate) || Number.parseFloat(item.amount) || 0;
+        const disc = Number.parseFloat(item.discountPct) || 0;
+        const discountedPrice = price * (1 - disc / 100);
+        const label = item.hsnSac
+          ? `${item.productName} [${item.hsnSac}]`
+          : item.productName;
+        return [
+          0n, // no productId
+          label,
+          BigInt(Math.round(Number.parseFloat(item.qty) || 1)),
+          BigInt(Math.round(discountedPrice * 100)),
+          BigInt(Math.round(Number.parseFloat(item.gstRate) || 5)),
+        ];
+      });
 
     await createInvoice.mutateAsync({
       customerId,
@@ -773,7 +861,7 @@ export default function InvoicesPage() {
       items:
         invoiceItems.length > 0
           ? invoiceItems
-          : [[0n, "Item from scanned invoice", 1n, 0n, 18n]],
+          : [[0n, "Item from scanned invoice", 1n, 0n, 5n]],
     });
 
     toast.success("Invoice created from scanned document!");

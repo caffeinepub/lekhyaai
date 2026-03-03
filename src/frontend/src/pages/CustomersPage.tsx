@@ -222,15 +222,29 @@ export default function CustomersPage() {
         title="Add Customer"
         entityLabel="Customer"
         ocidPrefix="customer_create"
+        showState={true}
       />
       <ContactModal
         open={editCustomer !== null}
         onClose={() => setEditCustomer(null)}
         onSubmit={handleUpdate}
-        initialData={editCustomer ?? undefined}
+        initialData={
+          editCustomer
+            ? {
+                ...editCustomer,
+                state:
+                  (
+                    JSON.parse(
+                      localStorage.getItem("customer_states") || "{}",
+                    ) as Record<string, string>
+                  )[editCustomer.id.toString()] ?? "",
+              }
+            : undefined
+        }
         title="Edit Customer"
         entityLabel="Customer"
         ocidPrefix="customer_edit"
+        showState={true}
       />
       <DeleteConfirmDialog
         open={deleteId !== null}

@@ -17,6 +17,7 @@ import DashboardPage from "./pages/DashboardPage";
 import ExpensesPage from "./pages/ExpensesPage";
 import GstReportsPage from "./pages/GstReportsPage";
 import InvoicesPage from "./pages/InvoicesPage";
+import LedgerPage from "./pages/LedgerPage";
 import LoginPage from "./pages/LoginPage";
 import OnboardingPage from "./pages/OnboardingPage";
 import ProductsPage from "./pages/ProductsPage";
@@ -77,6 +78,11 @@ const gstReportsRoute = createRoute({
   path: "/gst-reports",
   component: GstReportsPage,
 });
+const ledgerRoute = createRoute({
+  getParentRoute: () => layoutRoute,
+  path: "/ledger",
+  component: LedgerPage,
+});
 const aiAssistantRoute = createRoute({
   getParentRoute: () => layoutRoute,
   path: "/ai-assistant",
@@ -102,6 +108,7 @@ const routeTree = rootRoute.addChildren([
     productsRoute,
     expensesRoute,
     gstReportsRoute,
+    ledgerRoute,
     aiAssistantRoute,
     subscriptionRoute,
     settingsRoute,

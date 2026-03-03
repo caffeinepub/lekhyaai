@@ -1,4 +1,3 @@
-import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import {
   Dialog,
@@ -17,10 +16,10 @@ import {
 } from "@/components/ui/select";
 import { Skeleton } from "@/components/ui/skeleton";
 import { cn } from "@/lib/utils";
-import { ChevronDown, CreditCard, Plus, Search, Trash2, X } from "lucide-react";
+import { CreditCard, Plus, Search, Trash2, X } from "lucide-react";
 import { Loader2 } from "lucide-react";
 import { motion } from "motion/react";
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { toast } from "sonner";
 import {
   type Customer,
@@ -157,11 +156,35 @@ function CreateInvoiceModal({
   ]);
   const [errors, setErrors] = useState<Record<string, string>>({});
 
+  // Reset form when modal opens or next invoice number changes
+  useEffect(() => {
+    if (open) {
+      setForm({
+        customerId: "",
+        invoiceNumber: nextInvoiceNumber,
+        invoiceDate: new Date().toISOString().split("T")[0],
+        dueDate: "",
+      });
+      setItems([
+        { productId: "", productName: "", qty: "1", price: "", gstRate: "18" },
+      ]);
+      setErrors({});
+    }
+  }, [open, nextInvoiceNumber]);
+
   const selectedCustomer = customers.find(
     (c) => c.id.toString() === form.customerId,
   );
+
+  // Get customer state from localStorage (stored there since backend doesn't have state field yet)
+  const customerStateMap = JSON.parse(
+    localStorage.getItem("customer_states") || "{}",
+  ) as Record<string, string>;
+  const customerState = selectedCustomer
+    ? (customerStateMap[selectedCustomer.id.toString()] ?? "")
+    : "";
   const isIntraState =
-    selectedCustomer?.address?.includes(businessState) || false;
+    !!customerState && !!businessState && customerState === businessState;
 
   const { subtotal, cgst, sgst, igst, total } = calcGst(items, isIntraState);
 

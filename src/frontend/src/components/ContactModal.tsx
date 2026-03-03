@@ -7,9 +7,17 @@ import {
 } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
 import { Textarea } from "@/components/ui/textarea";
 import { Loader2 } from "lucide-react";
 import { useEffect, useState } from "react";
+import { INDIAN_STATES } from "../utils/indianStates";
 
 export interface ContactFormData {
   name: string;
@@ -17,6 +25,7 @@ export interface ContactFormData {
   phone: string;
   email: string;
   address: string;
+  state: string;
 }
 
 interface Props {
@@ -27,6 +36,7 @@ interface Props {
   title: string;
   entityLabel: string; // "Customer" | "Vendor"
   ocidPrefix: string;
+  showState?: boolean; // Show state dropdown (for customers)
 }
 
 const EMPTY: ContactFormData = {
@@ -35,6 +45,7 @@ const EMPTY: ContactFormData = {
   phone: "",
   email: "",
   address: "",
+  state: "",
 };
 
 export default function ContactModal({
@@ -45,6 +56,7 @@ export default function ContactModal({
   title,
   entityLabel,
   ocidPrefix,
+  showState = false,
 }: Props) {
   const [form, setForm] = useState<ContactFormData>({
     ...EMPTY,
@@ -183,6 +195,30 @@ export default function ContactModal({
               }
             />
           </div>
+
+          {showState && (
+            <div className="space-y-1.5">
+              <Label htmlFor={`${ocidPrefix}-state`}>State</Label>
+              <Select
+                value={form.state}
+                onValueChange={(v) => setForm((p) => ({ ...p, state: v }))}
+              >
+                <SelectTrigger
+                  id={`${ocidPrefix}-state`}
+                  data-ocid={`${ocidPrefix}.state_select`}
+                >
+                  <SelectValue placeholder="Select state" />
+                </SelectTrigger>
+                <SelectContent className="max-h-60">
+                  {INDIAN_STATES.map((s) => (
+                    <SelectItem key={s} value={s}>
+                      {s}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+          )}
 
           <div className="flex gap-3 pt-2">
             <Button

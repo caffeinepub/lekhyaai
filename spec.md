@@ -1,34 +1,54 @@
 # LekhyaAI
 
 ## Current State
-- Settings page has: Business Profile edit form (name, GSTIN, state, address), My Businesses list with switch/delete, Create Business modal, Delete confirm dialog.
-- No color theme selector, no logo upload, no signature upload.
-- AI Assistant uses a rule-based `queryAI` backend call -- no real LLM connection.
-- `index.css` defines OKLCH tokens for light and dark modes. Dark mode is applied via `.dark` class on `<html>`.
+
+Full-stack Indian GST accounting SaaS with modules: Dashboard, Invoices, Customers, Vendors, Products, Expenses, GST Reports, AI Assistant, Subscription, Settings. Backend is Motoko with complete CRUD for all entities. Frontend is React + TanStack Router.
+
+**Known bugs:**
+- "Create Invoice" button fails silently. Root cause: `isIntraState` check uses `selectedCustomer?.address?.includes(businessState)` but `businessState` may be empty string or undefined. Also `businessId` is not passed to `createInvoice` correctly -- the `useCreateInvoice` hook calls `actor.createInvoice(activeBusinessId, ...)` but `activeBusinessId` can be null.
+- A secondary issue: the invoice form does not reset `invoiceNumber` when `nextInvoiceNumber` prop changes (stale state).
+
+**Missing features:**
+- Double-entry accounting ledger: Chart of Accounts, Journal Entries, Ledger view -- none of these exist in backend or frontend.
 
 ## Requested Changes (Diff)
 
 ### Add
-1. **Color Themes module** in Settings -- a panel with preset theme options (e.g. Teal, Saffron, Purple, Emerald, Rose, Slate). Each theme overrides `--primary`, `--secondary`, `--accent`, and derived sidebar tokens. Selection persists in `localStorage` and is applied at app startup by writing CSS variable overrides on `:root`. Include a live preview swatch per theme.
-2. **Dark/Light mode toggle** in the Color Themes panel -- switches the `.dark` class on `<html>` and persists to `localStorage`.
-3. **Company Logo upload** in Settings -- file input accepting image files (PNG/JPG/SVG). Stored as a base64 data URL in `localStorage` under key `lekhya_logo`. Displayed in the sidebar/nav area replacing or supplementing the text logo, and shown as a preview in Settings.
-4. **Signature upload** in Settings -- file input accepting image files. Stored as base64 data URL in `localStorage` under key `lekhya_signature`. Preview shown in Settings. (Used on invoice PDF in future; stored only for now.)
-5. **"AI Powered by" notice** in AI Assistant page -- since real LLM is not available on this platform, show a clear notice in the AI Assistant explaining this is a rule-based GST engine, and style the chat header with an "AI Powered" badge that looks premium.
+- **Chart of Accounts (CoA)**: Standard Indian double-entry accounts (Assets, Liabilities, Income, Expenses, Capital). Backend: `ChartOfAccount` type with id, businessId, code, name, accountType, isSystem. CRUD: `createAccount`, `getAccounts`, `deleteAccount`.
+- **Journal Entries**: Every financial event (invoice creation, payment, expense) auto-posts a journal entry with debit/credit legs. Backend: `JournalEntry` type with id, businessId, date, narration, reference, entries array (accountId, debit, credit). Functions: `createJournalEntry`, `getJournalEntries`, `getLedgerForAccount`.
+- **Ledger Page (`/ledger`)**: Frontend page showing:
+  1. Chart of Accounts panel (left sidebar or tabs)
+  2. Ledger view for selected account: date, narration, debit, credit, running balance
+  3. Summary: total debit, total credit, closing balance
+- **Auto-journal posting on invoice creation**: When an invoice is created, post: Dr. Accounts Receivable / Cr. Sales + Cr. GST Payable
+- **Auto-journal posting on expense creation**: When an expense is created, post: Dr. Expense Category / Cr. Accounts Payable + Cr. GST Input Credit
+- **Auto-journal posting on payment**: When payment added to invoice, post: Dr. Bank/Cash / Cr. Accounts Receivable
+- Navigation link for Ledger in AppLayout sidebar
 
 ### Modify
-- `SettingsPage.tsx` -- add three new sections below existing content: (1) Color Themes, (2) Company Logo & Signature uploads. Each section is a card consistent with existing card style.
-- `App.tsx` or `main.tsx` -- on app init, read `lekhya_theme` and `lekhya_dark` from `localStorage` and apply theme tokens + dark class before first render to avoid flash.
-- `AiAssistantPage.tsx` -- add "AI Powered Rule Engine" badge/header treatment and a small info banner explaining it uses GST rule logic.
-- Sidebar / AppLayout -- if a logo is stored in `lekhya_logo`, show the image instead of the text brand mark.
+- **Fix Create Invoice button**: Ensure `activeBusinessId` is always a valid bigint before submission. Fix `isIntraState` detection: compare customer's state field directly against business state field (not address substring). Add `state` field to Customer for accurate intra/inter-state detection.
+- **Invoice form**: Reset `invoiceNumber` state when the modal opens fresh (use `key` prop on modal or reset in `useEffect`).
+- **Customer model**: Add `state` field (Indian state) to Customer type in backend and frontend. Update create/update customer forms to include a State dropdown.
+- **Intra-state detection**: Use `customer.state === business.state` logic instead of `address.includes(businessState)`.
 
 ### Remove
 - Nothing removed.
 
 ## Implementation Plan
-1. Create `ThemeContext.tsx` in `src/frontend/src/context/` -- manages theme (preset name), dark mode, logo URL, and signature URL. Reads/writes localStorage. Exposes `setTheme`, `toggleDark`, `setLogo`, `setSignature`.
-2. Define `THEMES` constant -- array of theme objects with name, label, and OKLCH token overrides for `--primary`, `--primary-foreground`, `--secondary`, `--secondary-foreground`, `--accent`, `--accent-foreground`, `--ring`, sidebar tokens. Apply as inline CSS vars on `:root` via `useEffect`.
-3. Wrap `App.tsx` with `ThemeProvider`. Apply dark class and theme tokens early (in provider mount effect).
-4. Update `SettingsPage.tsx` -- add **Color Themes** section (grid of theme swatches, dark mode toggle switch) and **Branding** section (logo upload with preview, signature upload with preview).
-5. Update `AppLayout` (sidebar/nav) -- consume `ThemeContext` for logo display.
-6. Update `AiAssistantPage.tsx` -- add AI badge and info banner.
-7. All new UI elements get appropriate `data-ocid` markers.
+
+1. **Backend (Motoko)**:
+   - Add `state` field to `Customer` type and update `createCustomer`, `updateCustomer`, `getCustomers`
+   - Add `ChartOfAccount` type + storage map + CRUD functions (`createAccount`, `getAccounts`, `deleteAccount`, `seedDefaultAccounts`)
+   - Add `JournalEntry` + `JournalEntryLine` types + storage map + functions (`createJournalEntry`, `getJournalEntries`, `getLedgerForAccount`)
+   - Auto-seed default Indian CoA accounts for each new business
+   - Post journal entries automatically in `createInvoice`, `addPaymentToInvoice`, `createExpense`
+   - Add `getJournalEntries(businessId)` and `getLedgerForAccount(businessId, accountId)` query functions
+
+2. **Frontend**:
+   - Update `backend.d.ts` to reflect new Customer (add `state`), ChartOfAccount, JournalEntry types and new actor methods
+   - Fix `CreateInvoiceModal`: use `customer.state` for intra-state check; guard against null `activeBusinessId`
+   - Update Customer create/edit forms to include State dropdown
+   - Add `useQueries` hooks: `useAccounts`, `useCreateAccount`, `useDeleteAccount`, `useJournalEntries`, `useLedger`
+   - Create `LedgerPage.tsx`: Chart of Accounts list on left, ledger entries on right with running balance, debit/credit totals
+   - Add `/ledger` route in `App.tsx`
+   - Add "Ledger" nav item in `AppLayout`

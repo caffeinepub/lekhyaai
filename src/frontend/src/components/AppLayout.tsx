@@ -10,6 +10,7 @@ import { cn } from "@/lib/utils";
 import { Link, Outlet, useLocation } from "@tanstack/react-router";
 import {
   BarChart3,
+  BookOpen,
   Bot,
   Building2,
   ChevronDown,
@@ -40,6 +41,7 @@ const navItems = [
   { path: "/vendors", icon: Truck, label: "Vendors" },
   { path: "/products", icon: Package, label: "Products" },
   { path: "/expenses", icon: Receipt, label: "Expenses" },
+  { path: "/ledger", icon: BookOpen, label: "Ledger" },
   { path: "/gst-reports", icon: BarChart3, label: "GST Reports" },
   { path: "/ai-assistant", icon: Bot, label: "AI Assistant" },
   { path: "/subscription", icon: CreditCard, label: "Subscription" },

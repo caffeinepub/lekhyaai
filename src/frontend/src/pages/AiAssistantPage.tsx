@@ -78,7 +78,91 @@ export default function AiAssistantPage() {
     setIsLoading(true);
 
     try {
-      const response = await actor.queryAI(activeBusinessId, text);
+      // Compute answer locally using invoices + expenses data
+      const q = text.toLowerCase();
+      let response = "";
+
+      const [allInvoices, allExpenses] = await Promise.all([
+        actor.getInvoices(activeBusinessId),
+        actor.getExpenses(activeBusinessId),
+      ]);
+
+      const now = Date.now();
+      const monthStart = BigInt((now - 30 * 24 * 60 * 60 * 1000) * 1_000_000);
+
+      if (
+        q.includes("gst") &&
+        (q.includes("owe") || q.includes("liability") || q.includes("how much"))
+      ) {
+        let outputGst = 0n;
+        let inputGst = 0n;
+        for (const inv of allInvoices) {
+          if (
+            inv.invoiceDate >= monthStart &&
+            (inv.status === "sent" || inv.status === "paid")
+          ) {
+            outputGst += inv.cgst + inv.sgst + inv.igst;
+          }
+        }
+        for (const exp of allExpenses) {
+          if (exp.expenseDate >= monthStart) inputGst += exp.gstAmount;
+        }
+        const net = outputGst > inputGst ? outputGst - inputGst : 0n;
+        response = `Current month GST summary:\n• Output GST (sales): ₹${(Number(outputGst) / 100).toLocaleString("en-IN", { minimumFractionDigits: 2 })}\n• Input GST (purchases): ₹${(Number(inputGst) / 100).toLocaleString("en-IN", { minimumFractionDigits: 2 })}\n• Net GST Payable: ₹${(Number(net) / 100).toLocaleString("en-IN", { minimumFractionDigits: 2 })}`;
+      } else if (
+        q.includes("overdue") ||
+        q.includes("hasn't paid") ||
+        q.includes("not paid")
+      ) {
+        const overdue = allInvoices.filter((i) => i.status === "overdue");
+        response =
+          overdue.length === 0
+            ? "Great news — you have no overdue invoices right now!"
+            : `You have ${overdue.length} overdue invoice(s) totalling ₹${(overdue.reduce((s, i) => s + Number(i.totalAmount), 0) / 100).toLocaleString("en-IN", { minimumFractionDigits: 2 })}.`;
+      } else if (
+        q.includes("cash flow") ||
+        q.includes("receivable") ||
+        q.includes("payable")
+      ) {
+        const receivables = allInvoices
+          .filter((i) => i.status !== "paid")
+          .reduce((s, i) => s + Number(i.totalAmount), 0);
+        const payables = allExpenses.reduce((s, e) => s + Number(e.amount), 0);
+        response = `Cash Flow Summary:\n• Total Receivables (unpaid invoices): ₹${(receivables / 100).toLocaleString("en-IN", { minimumFractionDigits: 2 })}\n• Total Payables (expenses): ₹${(payables / 100).toLocaleString("en-IN", { minimumFractionDigits: 2 })}`;
+      } else if (
+        q.includes("igst") ||
+        q.includes("cgst") ||
+        q.includes("sgst") ||
+        q.includes("intra") ||
+        q.includes("inter")
+      ) {
+        response =
+          "GST Types:\n• Intra-state transactions (same state): CGST + SGST (each at half the GST rate)\n• Inter-state transactions (different states): IGST (full GST rate)\n\nFor software services: 18% GST applies (9% CGST + 9% SGST for intra-state, or 18% IGST for inter-state).";
+      } else if (q.includes("gstin") || q.includes("validate")) {
+        response =
+          "GSTIN Format: 15 characters\n• 2 digits: State code\n• 10 characters: PAN number\n• 1 digit: Entity number\n• 1 letter: Always 'Z'\n• 1 alphanumeric: Checksum\n\nExample: 27AAPFU0939F1ZV (Maharashtra)";
+      } else if (q.includes("composition") || q.includes("scheme")) {
+        response =
+          "Composition Scheme:\n• Available for businesses with turnover up to ₹1.5 crore (₹75 lakh for some states)\n• Pays fixed percentage as tax (1% for traders, 2% for manufacturers, 5% for restaurants)\n• Cannot collect GST from customers\n• Cannot claim input tax credit\n• File quarterly returns (GSTR-4)";
+      } else if (
+        q.includes("invoice") &&
+        (q.includes("count") || q.includes("total") || q.includes("how many"))
+      ) {
+        const paid = allInvoices.filter((i) => i.status === "paid").length;
+        const draft = allInvoices.filter((i) => i.status === "draft").length;
+        const sent = allInvoices.filter((i) => i.status === "sent").length;
+        response = `Invoice Summary:\n• Total invoices: ${allInvoices.length}\n• Paid: ${paid}\n• Sent/Pending: ${sent}\n• Draft: ${draft}\n• Overdue: ${allInvoices.filter((i) => i.status === "overdue").length}`;
+      } else if (q.includes("expense") || q.includes("spend")) {
+        const total = allExpenses.reduce((s, e) => s + Number(e.amount), 0);
+        const monthExp = allExpenses
+          .filter((e) => e.expenseDate >= monthStart)
+          .reduce((s, e) => s + Number(e.amount), 0);
+        response = `Expense Summary:\n• Total expenses: ₹${(total / 100).toLocaleString("en-IN", { minimumFractionDigits: 2 })}\n• This month: ₹${(monthExp / 100).toLocaleString("en-IN", { minimumFractionDigits: 2 })}\n• Total GST input credit: ₹${(allExpenses.reduce((s, e) => s + Number(e.gstAmount), 0) / 100).toLocaleString("en-IN", { minimumFractionDigits: 2 })}`;
+      } else {
+        response =
+          "I'm your AI accounting assistant for LekhyaAI. I can help you with:\n• GST liability calculation\n• Overdue invoice tracking\n• Cash flow summary\n• CGST/SGST/IGST rules\n• GSTIN validation\n• Composition scheme\n• Invoice and expense summaries\n\nTry asking: 'How much GST do I owe?' or 'Show my overdue invoices'.";
+      }
+
       const aiMsg: Message = {
         id: `ai-${Date.now()}`,
         role: "assistant",

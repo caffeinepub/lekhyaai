@@ -113,17 +113,41 @@ export default function GstReportsPage() {
     }
     setLoading(true);
     try {
-      await actor.generateGstReport(
-        activeBusinessId,
-        dateStringToNs(dates.start),
-        dateStringToNs(dates.end),
-      );
-      // Fetch dashboard data for GST numbers
-      const dashboard = await actor.getDashboardData(activeBusinessId);
+      const periodStart = dateStringToNs(dates.start);
+      const periodEnd = dateStringToNs(dates.end);
+
+      await actor.generateGstReport(activeBusinessId, periodStart, periodEnd);
+
+      // Compute GST numbers locally from invoices + expenses
+      const [allInvoices, allExpenses] = await Promise.all([
+        actor.getInvoices(activeBusinessId),
+        actor.getExpenses(activeBusinessId),
+      ]);
+
+      let outputGst = 0n;
+      for (const inv of allInvoices) {
+        if (
+          inv.invoiceDate >= periodStart &&
+          inv.invoiceDate <= periodEnd &&
+          (inv.status === "sent" || inv.status === "paid")
+        ) {
+          outputGst += inv.cgst + inv.sgst + inv.igst;
+        }
+      }
+
+      let inputGst = 0n;
+      for (const exp of allExpenses) {
+        if (exp.expenseDate >= periodStart && exp.expenseDate <= periodEnd) {
+          inputGst += exp.gstAmount;
+        }
+      }
+
+      const netPayable = outputGst > inputGst ? outputGst - inputGst : 0n;
+
       setReport({
-        outputGst: dashboard.currentMonthOutputGst,
-        inputGst: dashboard.currentMonthInputGst,
-        netPayable: dashboard.netGstPayable,
+        outputGst,
+        inputGst,
+        netPayable,
         period:
           period !== "custom"
             ? PERIOD_LABELS[period]

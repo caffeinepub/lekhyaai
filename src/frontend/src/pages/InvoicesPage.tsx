@@ -16,8 +16,15 @@ import {
 } from "@/components/ui/select";
 import { Skeleton } from "@/components/ui/skeleton";
 import { cn } from "@/lib/utils";
-import { CreditCard, Plus, Search, Trash2, X } from "lucide-react";
-import { Loader2 } from "lucide-react";
+import {
+  CreditCard,
+  Loader2,
+  Plus,
+  ScanLine,
+  Search,
+  Trash2,
+  X,
+} from "lucide-react";
 import { motion } from "motion/react";
 import { useEffect, useState } from "react";
 import { toast } from "sonner";
@@ -28,9 +35,13 @@ import {
   type Product,
 } from "../backend.d";
 import DeleteConfirmDialog from "../components/DeleteConfirmDialog";
+import OcrScanModal, {
+  type OcrExtractedData,
+} from "../components/OcrScanModal";
 import { useBusiness } from "../context/BusinessContext";
 import {
   useAddPayment,
+  useCreateCustomer,
   useCreateInvoice,
   useCustomers,
   useDeleteInvoice,
@@ -680,8 +691,11 @@ export default function InvoicesPage() {
   const { data: products = [] } = useProducts();
   const updateStatus = useUpdateInvoiceStatus();
   const deleteInvoice = useDeleteInvoice();
+  const createInvoice = useCreateInvoice();
+  const createCustomer = useCreateCustomer();
 
   const [createOpen, setCreateOpen] = useState(false);
+  const [ocrOpen, setOcrOpen] = useState(false);
   const [paymentInvoiceId, setPaymentInvoiceId] = useState<bigint | null>(null);
   const [deleteId, setDeleteId] = useState<bigint | null>(null);
   const [search, setSearch] = useState("");
@@ -711,6 +725,61 @@ export default function InvoicesPage() {
     }
   }
 
+  async function handleOcrApprove(data: OcrExtractedData) {
+    // Step 1: Find or create customer
+    let customerId: bigint;
+    const existingCustomer = customers.find(
+      (c) =>
+        c.name.toLowerCase().trim() === data.customerName.toLowerCase().trim(),
+    );
+    if (existingCustomer) {
+      customerId = existingCustomer.id;
+    } else if (data.customerName.trim()) {
+      // Auto-create customer
+      customerId = await createCustomer.mutateAsync({
+        name: data.customerName,
+        gstin: data.customerGstin,
+        phone: data.customerPhone,
+        email: data.customerEmail,
+        address: data.customerAddress,
+      });
+      toast.success(`Customer "${data.customerName}" added automatically`);
+    } else {
+      toast.error("Customer name required. Please fill in the customer name.");
+      return;
+    }
+
+    // Step 2: Create invoice
+    const invoiceItems: Array<[bigint, string, bigint, bigint, bigint]> =
+      data.items.map((item) => [
+        0n, // no productId
+        item.productName,
+        BigInt(Math.round(Number.parseFloat(item.qty) || 1)),
+        BigInt(Math.round((Number.parseFloat(item.price) || 0) * 100)),
+        BigInt(Math.round(Number.parseFloat(item.gstRate) || 18)),
+      ]);
+
+    await createInvoice.mutateAsync({
+      customerId,
+      invoiceNumber: data.invoiceNumber || nextInvoiceNumber,
+      invoiceDate: dateStringToNs(
+        data.invoiceDate || new Date().toISOString().split("T")[0],
+      ),
+      dueDate: dateStringToNs(
+        data.dueDate ||
+          data.invoiceDate ||
+          new Date().toISOString().split("T")[0],
+      ),
+      items:
+        invoiceItems.length > 0
+          ? invoiceItems
+          : [[0n, "Item from scanned invoice", 1n, 0n, 18n]],
+    });
+
+    toast.success("Invoice created from scanned document!");
+    setOcrOpen(false);
+  }
+
   async function handleDelete() {
     if (!deleteId) return;
     try {
@@ -733,14 +802,25 @@ export default function InvoicesPage() {
             {invoices.length} invoice{invoices.length !== 1 ? "s" : ""} total
           </p>
         </div>
-        <Button
-          data-ocid="invoices.create.open_modal_button"
-          onClick={() => setCreateOpen(true)}
-          className="bg-primary text-primary-foreground hover:bg-primary/90 gap-2"
-        >
-          <Plus className="w-4 h-4" />
-          <span className="hidden sm:inline">New Invoice</span>
-        </Button>
+        <div className="flex items-center gap-2">
+          <Button
+            variant="outline"
+            data-ocid="invoices.scan.open_modal_button"
+            onClick={() => setOcrOpen(true)}
+            className="gap-2"
+          >
+            <ScanLine className="w-4 h-4" />
+            <span className="hidden sm:inline">Scan Invoice</span>
+          </Button>
+          <Button
+            data-ocid="invoices.create.open_modal_button"
+            onClick={() => setCreateOpen(true)}
+            className="bg-primary text-primary-foreground hover:bg-primary/90 gap-2"
+          >
+            <Plus className="w-4 h-4" />
+            <span className="hidden sm:inline">New Invoice</span>
+          </Button>
+        </div>
       </div>
 
       {/* Filters */}
@@ -912,6 +992,12 @@ export default function InvoicesPage() {
         products={products}
         businessState={activeBusiness?.state ?? ""}
         nextInvoiceNumber={nextInvoiceNumber}
+      />
+      <OcrScanModal
+        open={ocrOpen}
+        onClose={() => setOcrOpen(false)}
+        customers={customers}
+        onApprove={handleOcrApprove}
       />
       <PaymentModal
         open={paymentInvoiceId !== null}

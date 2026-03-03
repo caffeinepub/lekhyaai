@@ -13,15 +13,6 @@ export interface TransformationOutput {
     headers: Array<http_header>;
 }
 export type Time = bigint;
-export interface DashboardData {
-    netGstPayable: bigint;
-    recentInvoices: Array<Invoice>;
-    currentMonthOutputGst: bigint;
-    totalPayables: bigint;
-    currentMonthInputGst: bigint;
-    overdueInvoiceCount: bigint;
-    totalReceivables: bigint;
-}
 export interface Business {
     id: bigint;
     owner: Principal;
@@ -67,14 +58,22 @@ export interface Customer {
     address: string;
     phone: string;
 }
+export interface http_header {
+    value: string;
+    name: string;
+}
 export interface http_request_result {
     status: bigint;
     body: Uint8Array;
     headers: Array<http_header>;
 }
-export interface http_header {
-    value: string;
-    name: string;
+export interface BusinessUserRole {
+    id: bigint;
+    businessId: bigint;
+    createdAt: Time;
+    role: BusinessRole;
+    invitedBy: Principal;
+    userPrincipal: Principal;
 }
 export interface ShoppingItem {
     productName: string;
@@ -113,12 +112,6 @@ export interface Vendor {
     address: string;
     phone: string;
 }
-export interface SubscriptionStatus {
-    invoiceCount: bigint;
-    tier: SubscriptionTier;
-    productCount: bigint;
-    customerCount: bigint;
-}
 export interface Product {
     id: bigint;
     stockQuantity: bigint;
@@ -134,15 +127,16 @@ export interface UserProfile {
     name: string;
     email: string;
 }
+export enum BusinessRole {
+    ca = "ca",
+    accountant = "accountant",
+    admin = "admin"
+}
 export enum InvoiceStatus {
     paid = "paid",
     sent = "sent",
     overdue = "overdue",
     draft = "draft"
-}
-export enum SubscriptionTier {
-    free = "free",
-    paid = "paid"
 }
 export enum UserRole {
     admin = "admin",
@@ -167,27 +161,28 @@ export interface backendInterface {
     deleteVendor(id: bigint): Promise<void>;
     generateGstReport(businessId: bigint, periodStart: Time, periodEnd: Time): Promise<bigint>;
     getBusiness(id: bigint): Promise<Business>;
+    getBusinessUsers(businessId: bigint): Promise<Array<BusinessUserRole>>;
     getCallerUserProfile(): Promise<UserProfile | null>;
     getCallerUserRole(): Promise<UserRole>;
     getCustomer(id: bigint): Promise<Customer>;
     getCustomers(businessId: bigint): Promise<Array<Customer>>;
-    getDashboardData(businessId: bigint): Promise<DashboardData>;
     getExpense(id: bigint): Promise<Expense>;
     getExpenses(businessId: bigint): Promise<Array<Expense>>;
     getInvoice(id: bigint): Promise<Invoice>;
     getInvoices(businessId: bigint): Promise<Array<Invoice>>;
+    getMyBusinessRole(businessId: bigint): Promise<BusinessRole | null>;
     getMyBusinesses(): Promise<Array<Business>>;
     getOverdueInvoices(businessId: bigint): Promise<Array<Invoice>>;
     getProduct(id: bigint): Promise<Product>;
     getProducts(businessId: bigint): Promise<Array<Product>>;
     getStripeSessionStatus(sessionId: string): Promise<StripeSessionStatus>;
-    getSubscriptionStatus(userId: Principal): Promise<SubscriptionStatus>;
     getUserProfile(user: Principal): Promise<UserProfile | null>;
     getVendor(id: bigint): Promise<Vendor>;
     getVendors(businessId: bigint): Promise<Array<Vendor>>;
+    inviteUserToBusinessRole(businessId: bigint, userPrincipal: Principal, role: BusinessRole): Promise<bigint>;
     isCallerAdmin(): Promise<boolean>;
     isStripeConfigured(): Promise<boolean>;
-    queryAI(businessId: bigint, userMessage: string): Promise<string>;
+    removeBusinessUser(roleId: bigint): Promise<void>;
     saveCallerUserProfile(profile: UserProfile): Promise<void>;
     setStripeConfiguration(config: StripeConfiguration): Promise<void>;
     transform(input: TransformationInput): Promise<TransformationOutput>;

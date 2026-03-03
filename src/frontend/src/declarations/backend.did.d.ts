@@ -19,6 +19,17 @@ export interface Business {
   'gstin' : string,
   'address' : string,
 }
+export type BusinessRole = { 'ca' : null } |
+  { 'accountant' : null } |
+  { 'admin' : null };
+export interface BusinessUserRole {
+  'id' : bigint,
+  'businessId' : bigint,
+  'createdAt' : Time,
+  'role' : BusinessRole,
+  'invitedBy' : Principal,
+  'userPrincipal' : Principal,
+}
 export interface Customer {
   'id' : bigint,
   'businessId' : bigint,
@@ -28,15 +39,6 @@ export interface Customer {
   'gstin' : string,
   'address' : string,
   'phone' : string,
-}
-export interface DashboardData {
-  'netGstPayable' : bigint,
-  'recentInvoices' : Array<Invoice>,
-  'currentMonthOutputGst' : bigint,
-  'totalPayables' : bigint,
-  'currentMonthInputGst' : bigint,
-  'overdueInvoiceCount' : bigint,
-  'totalReceivables' : bigint,
 }
 export interface Expense {
   'id' : bigint,
@@ -94,14 +96,6 @@ export type StripeSessionStatus = {
     'completed' : { 'userPrincipal' : [] | [string], 'response' : string }
   } |
   { 'failed' : { 'error' : string } };
-export interface SubscriptionStatus {
-  'invoiceCount' : bigint,
-  'tier' : SubscriptionTier,
-  'productCount' : bigint,
-  'customerCount' : bigint,
-}
-export type SubscriptionTier = { 'free' : null } |
-  { 'paid' : null };
 export type Time = bigint;
 export interface TransformationInput {
   'context' : Uint8Array,
@@ -179,27 +173,31 @@ export interface _SERVICE {
   'deleteVendor' : ActorMethod<[bigint], undefined>,
   'generateGstReport' : ActorMethod<[bigint, Time, Time], bigint>,
   'getBusiness' : ActorMethod<[bigint], Business>,
+  'getBusinessUsers' : ActorMethod<[bigint], Array<BusinessUserRole>>,
   'getCallerUserProfile' : ActorMethod<[], [] | [UserProfile]>,
   'getCallerUserRole' : ActorMethod<[], UserRole>,
   'getCustomer' : ActorMethod<[bigint], Customer>,
   'getCustomers' : ActorMethod<[bigint], Array<Customer>>,
-  'getDashboardData' : ActorMethod<[bigint], DashboardData>,
   'getExpense' : ActorMethod<[bigint], Expense>,
   'getExpenses' : ActorMethod<[bigint], Array<Expense>>,
   'getInvoice' : ActorMethod<[bigint], Invoice>,
   'getInvoices' : ActorMethod<[bigint], Array<Invoice>>,
+  'getMyBusinessRole' : ActorMethod<[bigint], [] | [BusinessRole]>,
   'getMyBusinesses' : ActorMethod<[], Array<Business>>,
   'getOverdueInvoices' : ActorMethod<[bigint], Array<Invoice>>,
   'getProduct' : ActorMethod<[bigint], Product>,
   'getProducts' : ActorMethod<[bigint], Array<Product>>,
   'getStripeSessionStatus' : ActorMethod<[string], StripeSessionStatus>,
-  'getSubscriptionStatus' : ActorMethod<[Principal], SubscriptionStatus>,
   'getUserProfile' : ActorMethod<[Principal], [] | [UserProfile]>,
   'getVendor' : ActorMethod<[bigint], Vendor>,
   'getVendors' : ActorMethod<[bigint], Array<Vendor>>,
+  'inviteUserToBusinessRole' : ActorMethod<
+    [bigint, Principal, BusinessRole],
+    bigint
+  >,
   'isCallerAdmin' : ActorMethod<[], boolean>,
   'isStripeConfigured' : ActorMethod<[], boolean>,
-  'queryAI' : ActorMethod<[bigint, string], string>,
+  'removeBusinessUser' : ActorMethod<[bigint], undefined>,
   'saveCallerUserProfile' : ActorMethod<[UserProfile], undefined>,
   'setStripeConfiguration' : ActorMethod<[StripeConfiguration], undefined>,
   'transform' : ActorMethod<[TransformationInput], TransformationOutput>,

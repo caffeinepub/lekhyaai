@@ -30,6 +30,19 @@ export const Business = IDL.Record({
   'gstin' : IDL.Text,
   'address' : IDL.Text,
 });
+export const BusinessRole = IDL.Variant({
+  'ca' : IDL.Null,
+  'accountant' : IDL.Null,
+  'admin' : IDL.Null,
+});
+export const BusinessUserRole = IDL.Record({
+  'id' : IDL.Nat,
+  'businessId' : IDL.Nat,
+  'createdAt' : Time,
+  'role' : BusinessRole,
+  'invitedBy' : IDL.Principal,
+  'userPrincipal' : IDL.Principal,
+});
 export const UserProfile = IDL.Record({
   'name' : IDL.Text,
   'email' : IDL.Text,
@@ -43,6 +56,17 @@ export const Customer = IDL.Record({
   'gstin' : IDL.Text,
   'address' : IDL.Text,
   'phone' : IDL.Text,
+});
+export const Expense = IDL.Record({
+  'id' : IDL.Nat,
+  'expenseDate' : Time,
+  'businessId' : IDL.Nat,
+  'createdAt' : Time,
+  'description' : IDL.Text,
+  'gstAmount' : IDL.Nat,
+  'vendorId' : IDL.Opt(IDL.Nat),
+  'category' : IDL.Text,
+  'amount' : IDL.Nat,
 });
 export const InvoiceStatus = IDL.Variant({
   'paid' : IDL.Null,
@@ -65,26 +89,6 @@ export const Invoice = IDL.Record({
   'customerId' : IDL.Nat,
   'subtotal' : IDL.Nat,
 });
-export const DashboardData = IDL.Record({
-  'netGstPayable' : IDL.Nat,
-  'recentInvoices' : IDL.Vec(Invoice),
-  'currentMonthOutputGst' : IDL.Nat,
-  'totalPayables' : IDL.Nat,
-  'currentMonthInputGst' : IDL.Nat,
-  'overdueInvoiceCount' : IDL.Nat,
-  'totalReceivables' : IDL.Nat,
-});
-export const Expense = IDL.Record({
-  'id' : IDL.Nat,
-  'expenseDate' : Time,
-  'businessId' : IDL.Nat,
-  'createdAt' : Time,
-  'description' : IDL.Text,
-  'gstAmount' : IDL.Nat,
-  'vendorId' : IDL.Opt(IDL.Nat),
-  'category' : IDL.Text,
-  'amount' : IDL.Nat,
-});
 export const Product = IDL.Record({
   'id' : IDL.Nat,
   'stockQuantity' : IDL.Nat,
@@ -102,16 +106,6 @@ export const StripeSessionStatus = IDL.Variant({
     'response' : IDL.Text,
   }),
   'failed' : IDL.Record({ 'error' : IDL.Text }),
-});
-export const SubscriptionTier = IDL.Variant({
-  'free' : IDL.Null,
-  'paid' : IDL.Null,
-});
-export const SubscriptionStatus = IDL.Record({
-  'invoiceCount' : IDL.Nat,
-  'tier' : SubscriptionTier,
-  'productCount' : IDL.Nat,
-  'customerCount' : IDL.Nat,
 });
 export const Vendor = IDL.Record({
   'id' : IDL.Nat,
@@ -204,25 +198,25 @@ export const idlService = IDL.Service({
   'deleteVendor' : IDL.Func([IDL.Nat], [], []),
   'generateGstReport' : IDL.Func([IDL.Nat, Time, Time], [IDL.Nat], []),
   'getBusiness' : IDL.Func([IDL.Nat], [Business], ['query']),
+  'getBusinessUsers' : IDL.Func(
+      [IDL.Nat],
+      [IDL.Vec(BusinessUserRole)],
+      ['query'],
+    ),
   'getCallerUserProfile' : IDL.Func([], [IDL.Opt(UserProfile)], ['query']),
   'getCallerUserRole' : IDL.Func([], [UserRole], ['query']),
   'getCustomer' : IDL.Func([IDL.Nat], [Customer], ['query']),
   'getCustomers' : IDL.Func([IDL.Nat], [IDL.Vec(Customer)], ['query']),
-  'getDashboardData' : IDL.Func([IDL.Nat], [DashboardData], ['query']),
   'getExpense' : IDL.Func([IDL.Nat], [Expense], ['query']),
   'getExpenses' : IDL.Func([IDL.Nat], [IDL.Vec(Expense)], ['query']),
   'getInvoice' : IDL.Func([IDL.Nat], [Invoice], ['query']),
   'getInvoices' : IDL.Func([IDL.Nat], [IDL.Vec(Invoice)], ['query']),
+  'getMyBusinessRole' : IDL.Func([IDL.Nat], [IDL.Opt(BusinessRole)], ['query']),
   'getMyBusinesses' : IDL.Func([], [IDL.Vec(Business)], ['query']),
   'getOverdueInvoices' : IDL.Func([IDL.Nat], [IDL.Vec(Invoice)], ['query']),
   'getProduct' : IDL.Func([IDL.Nat], [Product], ['query']),
   'getProducts' : IDL.Func([IDL.Nat], [IDL.Vec(Product)], ['query']),
   'getStripeSessionStatus' : IDL.Func([IDL.Text], [StripeSessionStatus], []),
-  'getSubscriptionStatus' : IDL.Func(
-      [IDL.Principal],
-      [SubscriptionStatus],
-      ['query'],
-    ),
   'getUserProfile' : IDL.Func(
       [IDL.Principal],
       [IDL.Opt(UserProfile)],
@@ -230,9 +224,14 @@ export const idlService = IDL.Service({
     ),
   'getVendor' : IDL.Func([IDL.Nat], [Vendor], ['query']),
   'getVendors' : IDL.Func([IDL.Nat], [IDL.Vec(Vendor)], ['query']),
+  'inviteUserToBusinessRole' : IDL.Func(
+      [IDL.Nat, IDL.Principal, BusinessRole],
+      [IDL.Nat],
+      [],
+    ),
   'isCallerAdmin' : IDL.Func([], [IDL.Bool], ['query']),
   'isStripeConfigured' : IDL.Func([], [IDL.Bool], ['query']),
-  'queryAI' : IDL.Func([IDL.Nat, IDL.Text], [IDL.Text], ['query']),
+  'removeBusinessUser' : IDL.Func([IDL.Nat], [], []),
   'saveCallerUserProfile' : IDL.Func([UserProfile], [], []),
   'setStripeConfiguration' : IDL.Func([StripeConfiguration], [], []),
   'transform' : IDL.Func(
@@ -293,6 +292,19 @@ export const idlFactory = ({ IDL }) => {
     'gstin' : IDL.Text,
     'address' : IDL.Text,
   });
+  const BusinessRole = IDL.Variant({
+    'ca' : IDL.Null,
+    'accountant' : IDL.Null,
+    'admin' : IDL.Null,
+  });
+  const BusinessUserRole = IDL.Record({
+    'id' : IDL.Nat,
+    'businessId' : IDL.Nat,
+    'createdAt' : Time,
+    'role' : BusinessRole,
+    'invitedBy' : IDL.Principal,
+    'userPrincipal' : IDL.Principal,
+  });
   const UserProfile = IDL.Record({ 'name' : IDL.Text, 'email' : IDL.Text });
   const Customer = IDL.Record({
     'id' : IDL.Nat,
@@ -303,6 +315,17 @@ export const idlFactory = ({ IDL }) => {
     'gstin' : IDL.Text,
     'address' : IDL.Text,
     'phone' : IDL.Text,
+  });
+  const Expense = IDL.Record({
+    'id' : IDL.Nat,
+    'expenseDate' : Time,
+    'businessId' : IDL.Nat,
+    'createdAt' : Time,
+    'description' : IDL.Text,
+    'gstAmount' : IDL.Nat,
+    'vendorId' : IDL.Opt(IDL.Nat),
+    'category' : IDL.Text,
+    'amount' : IDL.Nat,
   });
   const InvoiceStatus = IDL.Variant({
     'paid' : IDL.Null,
@@ -325,26 +348,6 @@ export const idlFactory = ({ IDL }) => {
     'customerId' : IDL.Nat,
     'subtotal' : IDL.Nat,
   });
-  const DashboardData = IDL.Record({
-    'netGstPayable' : IDL.Nat,
-    'recentInvoices' : IDL.Vec(Invoice),
-    'currentMonthOutputGst' : IDL.Nat,
-    'totalPayables' : IDL.Nat,
-    'currentMonthInputGst' : IDL.Nat,
-    'overdueInvoiceCount' : IDL.Nat,
-    'totalReceivables' : IDL.Nat,
-  });
-  const Expense = IDL.Record({
-    'id' : IDL.Nat,
-    'expenseDate' : Time,
-    'businessId' : IDL.Nat,
-    'createdAt' : Time,
-    'description' : IDL.Text,
-    'gstAmount' : IDL.Nat,
-    'vendorId' : IDL.Opt(IDL.Nat),
-    'category' : IDL.Text,
-    'amount' : IDL.Nat,
-  });
   const Product = IDL.Record({
     'id' : IDL.Nat,
     'stockQuantity' : IDL.Nat,
@@ -362,16 +365,6 @@ export const idlFactory = ({ IDL }) => {
       'response' : IDL.Text,
     }),
     'failed' : IDL.Record({ 'error' : IDL.Text }),
-  });
-  const SubscriptionTier = IDL.Variant({
-    'free' : IDL.Null,
-    'paid' : IDL.Null,
-  });
-  const SubscriptionStatus = IDL.Record({
-    'invoiceCount' : IDL.Nat,
-    'tier' : SubscriptionTier,
-    'productCount' : IDL.Nat,
-    'customerCount' : IDL.Nat,
   });
   const Vendor = IDL.Record({
     'id' : IDL.Nat,
@@ -461,25 +454,29 @@ export const idlFactory = ({ IDL }) => {
     'deleteVendor' : IDL.Func([IDL.Nat], [], []),
     'generateGstReport' : IDL.Func([IDL.Nat, Time, Time], [IDL.Nat], []),
     'getBusiness' : IDL.Func([IDL.Nat], [Business], ['query']),
+    'getBusinessUsers' : IDL.Func(
+        [IDL.Nat],
+        [IDL.Vec(BusinessUserRole)],
+        ['query'],
+      ),
     'getCallerUserProfile' : IDL.Func([], [IDL.Opt(UserProfile)], ['query']),
     'getCallerUserRole' : IDL.Func([], [UserRole], ['query']),
     'getCustomer' : IDL.Func([IDL.Nat], [Customer], ['query']),
     'getCustomers' : IDL.Func([IDL.Nat], [IDL.Vec(Customer)], ['query']),
-    'getDashboardData' : IDL.Func([IDL.Nat], [DashboardData], ['query']),
     'getExpense' : IDL.Func([IDL.Nat], [Expense], ['query']),
     'getExpenses' : IDL.Func([IDL.Nat], [IDL.Vec(Expense)], ['query']),
     'getInvoice' : IDL.Func([IDL.Nat], [Invoice], ['query']),
     'getInvoices' : IDL.Func([IDL.Nat], [IDL.Vec(Invoice)], ['query']),
+    'getMyBusinessRole' : IDL.Func(
+        [IDL.Nat],
+        [IDL.Opt(BusinessRole)],
+        ['query'],
+      ),
     'getMyBusinesses' : IDL.Func([], [IDL.Vec(Business)], ['query']),
     'getOverdueInvoices' : IDL.Func([IDL.Nat], [IDL.Vec(Invoice)], ['query']),
     'getProduct' : IDL.Func([IDL.Nat], [Product], ['query']),
     'getProducts' : IDL.Func([IDL.Nat], [IDL.Vec(Product)], ['query']),
     'getStripeSessionStatus' : IDL.Func([IDL.Text], [StripeSessionStatus], []),
-    'getSubscriptionStatus' : IDL.Func(
-        [IDL.Principal],
-        [SubscriptionStatus],
-        ['query'],
-      ),
     'getUserProfile' : IDL.Func(
         [IDL.Principal],
         [IDL.Opt(UserProfile)],
@@ -487,9 +484,14 @@ export const idlFactory = ({ IDL }) => {
       ),
     'getVendor' : IDL.Func([IDL.Nat], [Vendor], ['query']),
     'getVendors' : IDL.Func([IDL.Nat], [IDL.Vec(Vendor)], ['query']),
+    'inviteUserToBusinessRole' : IDL.Func(
+        [IDL.Nat, IDL.Principal, BusinessRole],
+        [IDL.Nat],
+        [],
+      ),
     'isCallerAdmin' : IDL.Func([], [IDL.Bool], ['query']),
     'isStripeConfigured' : IDL.Func([], [IDL.Bool], ['query']),
-    'queryAI' : IDL.Func([IDL.Nat, IDL.Text], [IDL.Text], ['query']),
+    'removeBusinessUser' : IDL.Func([IDL.Nat], [], []),
     'saveCallerUserProfile' : IDL.Func([UserProfile], [], []),
     'setStripeConfiguration' : IDL.Func([StripeConfiguration], [], []),
     'transform' : IDL.Func(

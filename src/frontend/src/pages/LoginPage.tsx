@@ -114,16 +114,37 @@ export default function LoginPage() {
           ))}
         </div>
 
-        <div className="relative z-10 text-sidebar-foreground/40 text-xs">
-          © {new Date().getFullYear()}. Built with love using{" "}
-          <a
-            href={`https://caffeine.ai?utm_source=caffeine-footer&utm_medium=referral&utm_content=${encodeURIComponent(window.location.hostname)}`}
-            className="underline hover:text-sidebar-foreground/60 transition-colors"
-            target="_blank"
-            rel="noopener noreferrer"
+        {/* Indian Identity strip */}
+        <div className="relative z-10">
+          {/* Tagline */}
+          <p
+            className="text-sm italic font-medium mb-2"
+            style={{ color: "oklch(0.72 0.16 75)" }}
           >
-            caffeine.ai
-          </a>
+            "Accounting ko banaye easy"
+          </p>
+          {/* Tricolor strip */}
+          <div className="flex h-0.5 w-full mb-2 rounded-full overflow-hidden">
+            <div className="flex-1" style={{ backgroundColor: "#FF9933" }} />
+            <div className="flex-1 bg-white" />
+            <div className="flex-1" style={{ backgroundColor: "#138808" }} />
+          </div>
+          {/* Made in India */}
+          <p className="text-sidebar-foreground/50 text-xs mb-3">
+            🇮🇳 Made in India &nbsp;•&nbsp; Atmanirbhar Bharat
+          </p>
+          {/* Copyright */}
+          <div className="text-sidebar-foreground/40 text-xs">
+            © {new Date().getFullYear()}. Built with love using{" "}
+            <a
+              href={`https://caffeine.ai?utm_source=caffeine-footer&utm_medium=referral&utm_content=${encodeURIComponent(window.location.hostname)}`}
+              className="underline hover:text-sidebar-foreground/60 transition-colors"
+              target="_blank"
+              rel="noopener noreferrer"
+            >
+              caffeine.ai
+            </a>
+          </div>
         </div>
       </div>
 
@@ -198,6 +219,13 @@ export default function LoginPage() {
                 <p className="text-xs text-muted-foreground">{t}</p>
               </div>
             ))}
+          </div>
+
+          {/* India identity */}
+          <div className="mt-6 text-center">
+            <p className="text-xs text-muted-foreground/60">
+              🇮🇳 Made in India &nbsp;•&nbsp; Atmanirbhar Bharat
+            </p>
           </div>
         </motion.div>
       </div>

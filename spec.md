@@ -2,53 +2,87 @@
 
 ## Current State
 
-Full-stack Indian GST accounting SaaS with modules: Dashboard, Invoices, Customers, Vendors, Products, Expenses, GST Reports, AI Assistant, Subscription, Settings. Backend is Motoko with complete CRUD for all entities. Frontend is React + TanStack Router.
+LekhyaAI is a GST-compliant accounting web app for Indian SMEs with:
+- Multi-business support (one login, many businesses)
+- Invoices (CGST/SGST/IGST, status tracking, OCR scanner)
+- Customers, Vendors, Products (HSN + GST rate)
+- Expenses with GST input credit
+- GST Reports
+- Double-entry Ledger with Chart of Accounts (14 pre-seeded accounts) and Journal Entries
+- AI Assistant (rule-based)
+- Stripe subscription gating (Free / Pro)
+- Settings (theme, branding, API integrations)
+- Master Tenant Portal (/master)
 
-**Known bugs:**
-- "Create Invoice" button fails silently. Root cause: `isIntraState` check uses `selectedCustomer?.address?.includes(businessState)` but `businessState` may be empty string or undefined. Also `businessId` is not passed to `createInvoice` correctly -- the `useCreateInvoice` hook calls `actor.createInvoice(activeBusinessId, ...)` but `activeBusinessId` can be null.
-- A secondary issue: the invoice form does not reset `invoiceNumber` when `nextInvoiceNumber` prop changes (stale state).
+Backend roles currently: admin / user / guest (from Caffeine authorization component).
 
-**Missing features:**
-- Double-entry accounting ledger: Chart of Accounts, Journal Entries, Ledger view -- none of these exist in backend or frontend.
+Missing modules requested: Bank Accounts (details + opening balance + reconciliation), Petty Cash, RBAC (admin / accountant / CA roles with permissions), enhanced Journal Entry module with narration + pre-loaded General Accounts chart, P&L export, Balance Sheet export.
 
 ## Requested Changes (Diff)
 
 ### Add
-- **Chart of Accounts (CoA)**: Standard Indian double-entry accounts (Assets, Liabilities, Income, Expenses, Capital). Backend: `ChartOfAccount` type with id, businessId, code, name, accountType, isSystem. CRUD: `createAccount`, `getAccounts`, `deleteAccount`.
-- **Journal Entries**: Every financial event (invoice creation, payment, expense) auto-posts a journal entry with debit/credit legs. Backend: `JournalEntry` type with id, businessId, date, narration, reference, entries array (accountId, debit, credit). Functions: `createJournalEntry`, `getJournalEntries`, `getLedgerForAccount`.
-- **Ledger Page (`/ledger`)**: Frontend page showing:
-  1. Chart of Accounts panel (left sidebar or tabs)
-  2. Ledger view for selected account: date, narration, debit, credit, running balance
-  3. Summary: total debit, total credit, closing balance
-- **Auto-journal posting on invoice creation**: When an invoice is created, post: Dr. Accounts Receivable / Cr. Sales + Cr. GST Payable
-- **Auto-journal posting on expense creation**: When an expense is created, post: Dr. Expense Category / Cr. Accounts Payable + Cr. GST Input Credit
-- **Auto-journal posting on payment**: When payment added to invoice, post: Dr. Bank/Cash / Cr. Accounts Receivable
-- Navigation link for Ledger in AppLayout sidebar
+
+**1. Business Bank Accounts module**
+- BankAccount type: id, businessId, bankName, accountNumber, ifscCode, branch, accountType (current/savings/cc/od), openingBalance, openingDate, isActive
+- BankTransaction type: id, bankAccountId, date, description, debitAmount, creditAmount, reference, isReconciled, linkedJournalEntryId
+- Backend: createBankAccount, getBankAccounts, updateBankAccount, deleteBankAccount
+- Backend: createBankTransaction, getBankTransactions, reconcileTransaction (mark as reconciled), getBankReconciliationSummary (book balance, bank balance, unreconciled count)
+
+**2. Petty Cash module**
+- PettyCashAccount type: id, businessId, custodian, openingBalance, currentBalance
+- PettyCashTransaction type: id, accountId, date, description, amount, category, voucherNumber, type (receipt/payment), approvedBy
+- Backend: createPettyCashAccount, getPettyCashAccounts, createPettyCashTransaction, getPettyCashTransactions, replenishPettyCash
+
+**3. RBAC / User Management module**
+- BusinessUserRole type: businessId, userPrincipal, role (admin / accountant / ca), invitedBy, createdAt
+- Roles and permissions:
+  - admin: full access (create, edit, delete, export, manage users)
+  - accountant: create/edit invoices, expenses, journal entries, petty cash; view reports; NO delete, NO user management
+  - ca: read-only + can post journal entries + can export reports; cannot delete transactions
+- Backend: inviteUserToBusinessRole, getBusinessUsers, removeBusinessUser, getMyBusinessRole
+- Business ownership check updated to also allow users with assigned roles (not just owner)
+
+**4. Enhanced Journal Entry module**
+- JournalEntry type: id, businessId, date, entryNumber, narration, postedBy, isReversed, createdAt
+- JournalEntryLine type: id, journalEntryId, accountId, accountName, debit, credit, narration
+- Pre-loaded General Chart of Accounts (50 standard accounts covering Assets, Liabilities, Capital, Revenue, Expenses) seeded per business
+- Backend: createJournalEntry (with lines + narration), getJournalEntries, getJournalEntry, reverseJournalEntry, getChartOfAccounts, addAccount, updateAccount
+
+**5. P&L Report and Balance Sheet with Export**
+- Backend: getProfitAndLoss(businessId, fromDate, toDate) — returns revenue, cost of goods, gross profit, expenses breakdown, net profit
+- Backend: getBalanceSheet(businessId, asOfDate) — returns assets, liabilities, equity sections
+- Frontend: Export to CSV and printable PDF (using browser print API) on both report pages
 
 ### Modify
-- **Fix Create Invoice button**: Ensure `activeBusinessId` is always a valid bigint before submission. Fix `isIntraState` detection: compare customer's state field directly against business state field (not address substring). Add `state` field to Customer for accurate intra/inter-state detection.
-- **Invoice form**: Reset `invoiceNumber` state when the modal opens fresh (use `key` prop on modal or reset in `useEffect`).
-- **Customer model**: Add `state` field (Indian state) to Customer type in backend and frontend. Update create/update customer forms to include a State dropdown.
-- **Intra-state detection**: Use `customer.state === business.state` logic instead of `address.includes(businessState)`.
+
+- **Chart of Accounts**: Expand from 14 to ~50 standard Indian accounts (include GST Payable, GST Receivable, TDS Payable, Salary Payable, Rent, Electricity, Telephone, Petty Cash Account, Bank accounts, Capital accounts, etc.)
+- **Journal Entry**: Add narration field (entry-level and line-level), link to bank/petty cash transactions
+- **Dashboard**: Add quick-glance widgets for bank balance, petty cash balance, unreconciled transactions count
+- **Settings > Users**: Add user role management section (invite users, assign roles, remove users)
+- **Sidebar navigation**: Add Bank Accounts, Petty Cash, Users sections
 
 ### Remove
-- Nothing removed.
+
+Nothing removed.
 
 ## Implementation Plan
 
-1. **Backend (Motoko)**:
-   - Add `state` field to `Customer` type and update `createCustomer`, `updateCustomer`, `getCustomers`
-   - Add `ChartOfAccount` type + storage map + CRUD functions (`createAccount`, `getAccounts`, `deleteAccount`, `seedDefaultAccounts`)
-   - Add `JournalEntry` + `JournalEntryLine` types + storage map + functions (`createJournalEntry`, `getJournalEntries`, `getLedgerForAccount`)
-   - Auto-seed default Indian CoA accounts for each new business
-   - Post journal entries automatically in `createInvoice`, `addPaymentToInvoice`, `createExpense`
-   - Add `getJournalEntries(businessId)` and `getLedgerForAccount(businessId, accountId)` query functions
+1. **Backend (main.mo)**: Add BankAccount, BankTransaction, PettyCashAccount, PettyCashTransaction, BusinessUserRole, enhanced JournalEntry/JournalEntryLine, P&L/BalanceSheet query types. Add all CRUD + reconciliation + role management functions. Update business access checks to support multi-role access.
 
-2. **Frontend**:
-   - Update `backend.d.ts` to reflect new Customer (add `state`), ChartOfAccount, JournalEntry types and new actor methods
-   - Fix `CreateInvoiceModal`: use `customer.state` for intra-state check; guard against null `activeBusinessId`
-   - Update Customer create/edit forms to include State dropdown
-   - Add `useQueries` hooks: `useAccounts`, `useCreateAccount`, `useDeleteAccount`, `useJournalEntries`, `useLedger`
-   - Create `LedgerPage.tsx`: Chart of Accounts list on left, ledger entries on right with running balance, debit/credit totals
-   - Add `/ledger` route in `App.tsx`
-   - Add "Ledger" nav item in `AppLayout`
+2. **Frontend — Bank Accounts page**: List of bank accounts per business with opening balance. Bank statement-style transaction list. Reconciliation view: two columns (book vs bank), tick off reconciled items, show unreconciled balance diff.
+
+3. **Frontend — Petty Cash page**: Petty cash account card showing current balance. Transaction log with voucher numbers. Replenish button (creates journal entry).
+
+4. **Frontend — Users / RBAC page**: List of users in the business with their roles. Invite by Principal ID. Role badge (Admin/Accountant/CA). Remove user button. Permission matrix display.
+
+5. **Frontend — Journal Entry page**: Enhanced form with entry-level narration, dynamic line rows (add/remove), account selector from Chart of Accounts, Dr/Cr columns, running debit/credit totals, validation (debits = credits). List view with search and date filter.
+
+6. **Frontend — Chart of Accounts**: Expandable list with account groups. Add/edit custom accounts. 50 pre-seeded accounts visible.
+
+7. **Frontend — P&L Report**: Date range selector, revenue/expense breakdown table, net profit row, Export CSV button, Export PDF button (window.print with print-specific CSS).
+
+8. **Frontend — Balance Sheet**: As-of-date picker, assets/liabilities/equity table, Export CSV and PDF buttons.
+
+9. **Frontend — Dashboard**: Add Bank Balance card, Petty Cash Balance card, Unreconciled Transactions alert.
+
+10. **Frontend — Settings > Users**: Invite user form, role assignment, user list table.

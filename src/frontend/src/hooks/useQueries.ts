@@ -1,18 +1,38 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import type {
   Customer,
-  DashboardData,
   Expense,
   Invoice,
   InvoiceStatus,
   Product,
-  SubscriptionStatus,
   Vendor,
 } from "../backend.d";
+import { InvoiceStatus as InvoiceStatusEnum } from "../backend.d";
 import { useBusiness } from "../context/BusinessContext";
 import { useActor } from "./useActor";
 
+// ─── Local DashboardData type (computed from invoices + expenses) ──
+export interface DashboardData {
+  totalReceivables: bigint;
+  totalPayables: bigint;
+  currentMonthOutputGst: bigint;
+  currentMonthInputGst: bigint;
+  netGstPayable: bigint;
+  overdueInvoiceCount: bigint;
+  recentInvoices: Invoice[];
+}
+
+// ─── Local SubscriptionStatus type ────────────────────────────────
+export interface SubscriptionStatus {
+  invoiceCount: bigint;
+  tier: "free" | "paid";
+  productCount: bigint;
+  customerCount: bigint;
+}
+
 // ─── Dashboard ────────────────────────────────────────────────────
+// Computed locally from invoices + expenses since backend no longer
+// exposes getDashboardData.
 export function useDashboard() {
   const { actor, isFetching } = useActor();
   const { activeBusinessId } = useBusiness();
@@ -20,7 +40,62 @@ export function useDashboard() {
     queryKey: ["dashboard", activeBusinessId?.toString()],
     queryFn: async () => {
       if (!actor || activeBusinessId === null) throw new Error("Not ready");
-      return actor.getDashboardData(activeBusinessId);
+      const [allInvoices, allExpenses] = await Promise.all([
+        actor.getInvoices(activeBusinessId),
+        actor.getExpenses(activeBusinessId),
+      ]);
+
+      const now = Date.now();
+      const monthStart = BigInt((now - 30 * 24 * 60 * 60 * 1000) * 1_000_000);
+
+      let totalReceivables = 0n;
+      let currentMonthOutputGst = 0n;
+      let overdueInvoiceCount = 0n;
+
+      for (const inv of allInvoices) {
+        if (inv.status !== InvoiceStatusEnum.paid) {
+          totalReceivables += inv.totalAmount;
+        }
+        if (inv.status === InvoiceStatusEnum.overdue) {
+          overdueInvoiceCount += 1n;
+        }
+        if (
+          inv.invoiceDate >= monthStart &&
+          (inv.status === InvoiceStatusEnum.paid ||
+            inv.status === InvoiceStatusEnum.sent)
+        ) {
+          currentMonthOutputGst += inv.cgst + inv.sgst + inv.igst;
+        }
+      }
+
+      let totalPayables = 0n;
+      let currentMonthInputGst = 0n;
+
+      for (const exp of allExpenses) {
+        totalPayables += exp.amount;
+        if (exp.expenseDate >= monthStart) {
+          currentMonthInputGst += exp.gstAmount;
+        }
+      }
+
+      const netGstPayable =
+        currentMonthOutputGst > currentMonthInputGst
+          ? currentMonthOutputGst - currentMonthInputGst
+          : 0n;
+
+      const recentInvoices = [...allInvoices]
+        .sort((a, b) => Number(b.createdAt - a.createdAt))
+        .slice(0, 5);
+
+      return {
+        totalReceivables,
+        totalPayables,
+        currentMonthOutputGst,
+        currentMonthInputGst,
+        netGstPayable,
+        overdueInvoiceCount,
+        recentInvoices,
+      };
     },
     enabled: !!actor && !isFetching && activeBusinessId !== null,
     staleTime: 30_000,
@@ -495,16 +570,28 @@ export function useDeleteExpense() {
 }
 
 // ─── Subscription ─────────────────────────────────────────────────
+// Computed locally from invoices/customers/products counts since
+// getSubscriptionStatus is no longer exposed by the backend.
 export function useSubscriptionStatus() {
   const { actor, isFetching } = useActor();
-  const { identity } = useInternetIdentityHook();
+  const { activeBusinessId } = useBusiness();
   return useQuery<SubscriptionStatus>({
-    queryKey: ["subscription", identity?.getPrincipal().toString()],
+    queryKey: ["subscription", activeBusinessId?.toString()],
     queryFn: async () => {
-      if (!actor || !identity) throw new Error("Not ready");
-      return actor.getSubscriptionStatus(identity.getPrincipal());
+      if (!actor || activeBusinessId === null) throw new Error("Not ready");
+      const [invoices, customers, products] = await Promise.all([
+        actor.getInvoices(activeBusinessId),
+        actor.getCustomers(activeBusinessId),
+        actor.getProducts(activeBusinessId),
+      ]);
+      return {
+        invoiceCount: BigInt(invoices.length),
+        customerCount: BigInt(customers.length),
+        productCount: BigInt(products.length),
+        tier: "free" as const,
+      };
     },
-    enabled: !!actor && !isFetching && !!identity,
+    enabled: !!actor && !isFetching && activeBusinessId !== null,
     staleTime: 60_000,
   });
 }

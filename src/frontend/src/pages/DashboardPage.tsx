@@ -4,20 +4,165 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { cn } from "@/lib/utils";
 import { Link } from "@tanstack/react-router";
 import {
+  AlertCircle,
   AlertTriangle,
   ArrowRight,
+  Landmark,
   Receipt,
   RefreshCw,
   TrendingDown,
   TrendingUp,
+  Wallet,
 } from "lucide-react";
 import { motion } from "motion/react";
 import { InvoiceStatus } from "../backend.d";
 import { useBusiness } from "../context/BusinessContext";
 import { useDashboard } from "../hooks/useQueries";
 import { useCustomers } from "../hooks/useQueries";
-import { formatDate, formatINR } from "../utils/formatINR";
+import { formatDate, formatINR, formatINRNumber } from "../utils/formatINR";
 import { currentFY } from "../utils/formatINR";
+
+// ─── Bank & Petty Cash Widgets ───────────────────────────────────
+function BankPettyCashWidgets({ businessId }: { businessId: string }) {
+  if (!businessId) return null;
+
+  // Read bank accounts from localStorage
+  let bankAccounts: {
+    id: string;
+    bankName: string;
+    accountNumber: string;
+    openingBalance: number;
+  }[] = [];
+  try {
+    bankAccounts = JSON.parse(
+      localStorage.getItem(`lekhya_bank_accounts_${businessId}`) || "[]",
+    );
+  } catch {
+    bankAccounts = [];
+  }
+
+  // Compute bank balances
+  const bankData = bankAccounts.map((acc) => {
+    let txns: { credit: number; debit: number; reconciled: boolean }[] = [];
+    try {
+      txns = JSON.parse(
+        localStorage.getItem(`lekhya_bank_transactions_${acc.id}`) || "[]",
+      );
+    } catch {
+      txns = [];
+    }
+    const balance =
+      acc.openingBalance +
+      txns.reduce(
+        (s: number, t: { credit: number; debit: number }) =>
+          s + t.credit - t.debit,
+        0,
+      );
+    const unreconciled = txns.filter((t) => !t.reconciled).length;
+    return { ...acc, balance, unreconciled };
+  });
+
+  const totalBankBalance = bankData.reduce((s, a) => s + a.balance, 0);
+  const totalUnreconciled = bankData.reduce((s, a) => s + a.unreconciled, 0);
+
+  // Read petty cash
+  let pettyBalance = 0;
+  try {
+    const pcAcc = JSON.parse(
+      localStorage.getItem(`lekhya_petty_cash_${businessId}`) || "null",
+    );
+    if (pcAcc) {
+      const pcTxns: { amount: number; type: string }[] = JSON.parse(
+        localStorage.getItem(`lekhya_petty_cash_txns_${pcAcc.id}`) || "[]",
+      );
+      pettyBalance =
+        (pcAcc.openingBalance || 0) +
+        pcTxns.reduce(
+          (s: number, t: { amount: number; type: string }) =>
+            s + (t.type === "Receipt" ? t.amount : -t.amount),
+          0,
+        );
+    }
+  } catch {
+    pettyBalance = 0;
+  }
+
+  if (bankData.length === 0 && pettyBalance === 0) return null;
+
+  return (
+    <motion.div
+      initial={{ opacity: 0, y: 12 }}
+      animate={{ opacity: 1, y: 0 }}
+      transition={{ delay: 0.28 }}
+      className="bg-card rounded-xl shadow-card border border-border p-5 mb-6"
+    >
+      <div className="flex items-center justify-between mb-4">
+        <h3 className="font-semibold text-foreground">Cash & Bank</h3>
+        {totalUnreconciled > 0 && (
+          <div className="flex items-center gap-1.5 text-warning text-xs font-medium">
+            <AlertCircle className="w-3.5 h-3.5" />
+            {totalUnreconciled} unreconciled txn
+            {totalUnreconciled > 1 ? "s" : ""}
+          </div>
+        )}
+      </div>
+      <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
+        {bankData.map((acc) => (
+          <div key={acc.id} className="bg-muted/30 rounded-lg px-3 py-2.5">
+            <div className="flex items-center gap-1.5 mb-1">
+              <Landmark className="w-3 h-3 text-muted-foreground/60" />
+              <p className="text-[10px] text-muted-foreground truncate">
+                {acc.bankName}
+              </p>
+            </div>
+            <p
+              className={cn(
+                "font-mono text-sm font-bold",
+                acc.balance >= 0 ? "text-foreground" : "text-destructive",
+              )}
+            >
+              ₹ {formatINRNumber(acc.balance)}
+            </p>
+            {acc.unreconciled > 0 && (
+              <p className="text-[10px] text-warning mt-0.5">
+                {acc.unreconciled} unreconciled
+              </p>
+            )}
+          </div>
+        ))}
+        {pettyBalance > 0 && (
+          <div className="bg-muted/30 rounded-lg px-3 py-2.5">
+            <div className="flex items-center gap-1.5 mb-1">
+              <Wallet className="w-3 h-3 text-muted-foreground/60" />
+              <p className="text-[10px] text-muted-foreground">Petty Cash</p>
+            </div>
+            <p
+              className={cn(
+                "font-mono text-sm font-bold",
+                pettyBalance >= 500 ? "text-foreground" : "text-warning",
+              )}
+            >
+              ₹ {formatINRNumber(pettyBalance)}
+            </p>
+            {pettyBalance < 500 && (
+              <p className="text-[10px] text-warning mt-0.5">Low balance</p>
+            )}
+          </div>
+        )}
+        {bankData.length > 0 && (
+          <div className="bg-primary/5 border border-primary/20 rounded-lg px-3 py-2.5 col-span-2 sm:col-span-1">
+            <p className="text-[10px] text-muted-foreground mb-1">
+              Total Bank Balance
+            </p>
+            <p className="font-mono text-base font-bold text-primary">
+              ₹ {formatINRNumber(totalBankBalance)}
+            </p>
+          </div>
+        )}
+      </div>
+    </motion.div>
+  );
+}
 
 function StatusBadge({ status }: { status: InvoiceStatus }) {
   const map = {
@@ -255,6 +400,9 @@ export default function DashboardPage() {
           </div>
         </motion.div>
       )}
+
+      {/* Bank & Petty Cash Widgets */}
+      <BankPettyCashWidgets businessId={activeBusiness?.id.toString() ?? ""} />
 
       {/* Recent Invoices */}
       <motion.div

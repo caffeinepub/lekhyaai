@@ -13,9 +13,11 @@ import {
 import { motion } from "motion/react";
 import { useState } from "react";
 import { toast } from "sonner";
-import { SubscriptionTier } from "../backend.d";
 import { useActor } from "../hooks/useActor";
 import { useSubscriptionStatus } from "../hooks/useQueries";
+
+// SubscriptionTier is not yet in backend.d.ts — define locally
+const SubscriptionTier = { free: "free", paid: "paid" } as const;
 
 const FREE_LIMITS = {
   invoices: 10,

@@ -15,7 +15,9 @@ import {
   Building2,
   ChevronDown,
   CreditCard,
+  FileBarChart,
   FileText,
+  Landmark,
   LayoutDashboard,
   LogOut,
   MoreHorizontal,
@@ -24,7 +26,9 @@ import {
   Receipt,
   Settings,
   Truck,
+  UserCog,
   Users,
+  Wallet,
   X,
 } from "lucide-react";
 import { AnimatePresence, motion } from "motion/react";
@@ -41,9 +45,18 @@ const navItems = [
   { path: "/vendors", icon: Truck, label: "Vendors" },
   { path: "/products", icon: Package, label: "Products" },
   { path: "/expenses", icon: Receipt, label: "Expenses" },
+  { path: "/bank-accounts", icon: Landmark, label: "Bank Accounts" },
+  { path: "/petty-cash", icon: Wallet, label: "Petty Cash" },
   { path: "/ledger", icon: BookOpen, label: "Ledger" },
   { path: "/gst-reports", icon: BarChart3, label: "GST Reports" },
+  { path: "/reports/pl", icon: FileText, label: "P&L Report" },
+  {
+    path: "/reports/balance-sheet",
+    icon: FileBarChart,
+    label: "Balance Sheet",
+  },
   { path: "/ai-assistant", icon: Bot, label: "AI Assistant" },
+  { path: "/users", icon: UserCog, label: "Users & Access" },
   { path: "/subscription", icon: CreditCard, label: "Subscription" },
   { path: "/settings", icon: Settings, label: "Settings" },
 ];

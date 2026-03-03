@@ -17,32 +17,7 @@ export default defineConfig({
   build: {
     emptyOutDir: true,
     sourcemap: false,
-    minify: "esbuild",
-    rollupOptions: {
-      output: {
-        manualChunks: {
-          react: ["react", "react-dom"],
-          dfinity: [
-            "@dfinity/agent",
-            "@dfinity/identity",
-            "@dfinity/auth-client",
-            "@dfinity/candid",
-            "@dfinity/principal",
-          ],
-          ui: [
-            "lucide-react",
-            "motion",
-            "sonner",
-            "next-themes",
-            "clsx",
-            "tailwind-merge",
-            "class-variance-authority",
-          ],
-          query: ["@tanstack/react-query", "@tanstack/react-router"],
-          charts: ["recharts"],
-        },
-      },
-    },
+    minify: false,
   },
   css: {
     postcss: "./postcss.config.js",

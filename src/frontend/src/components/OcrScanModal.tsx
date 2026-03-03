@@ -26,6 +26,7 @@ import {
   FileText,
   Info,
   Loader2,
+  Package,
   Plus,
   RefreshCw,
   ScanLine,
@@ -111,14 +112,27 @@ export interface OcrExtractedData {
   confidence: number; // 0-100
 }
 
+// New products to be added to the catalog
+export interface NewProductFromScan {
+  productName: string;
+  hsnSac: string;
+  gstRate: string;
+  rate: string; // selling price
+  unit: string;
+  selected: boolean;
+}
+
 interface OcrScanModalProps {
   open: boolean;
   onClose: () => void;
   customers: Customer[];
-  onApprove: (data: OcrExtractedData) => Promise<void>;
+  onApprove: (
+    data: OcrExtractedData,
+    newProducts: NewProductFromScan[],
+  ) => Promise<void>;
 }
 
-type Step = "upload" | "scanning" | "review";
+type Step = "upload" | "scanning" | "review" | "products";
 
 // ─── State Code → State Name map (GST state codes) ─────────────────
 const STATE_CODE_MAP: Record<string, string> = {
@@ -210,6 +224,11 @@ function stateFromGstin(gstin: string): { state: string; code: string } {
   return { state: STATE_CODE_MAP[code] ?? "", code };
 }
 
+/** Strip commas and currency symbols from a number string */
+function cleanNum(s: string): string {
+  return s.replace(/[,₹\s]/g, "");
+}
+
 function parseInvoiceText(
   text: string,
   wordConfidences: number[],
@@ -254,12 +273,32 @@ function parseInvoiceText(
     stateNameMatches[1]?.[2]?.trim() ?? customerStateInfo.code;
 
   // ── Invoice number ───────────────────────────────────────────────
+  // Strategy: try multiple patterns from most specific to least specific
   let invoiceNumber = "";
-  const invMatch =
-    fullText.match(
-      /Invoice\s*No\.?\s*[:\-]?\s*\n?\s*([A-Z0-9][A-Z0-9\/\-]{2,25})/i,
-    ) || fullText.match(/(?:INV|BILL|TAX)[-#\/]?\s*([A-Z0-9\/\-]{3,20})/i);
-  if (invMatch) invoiceNumber = invMatch[1].trim();
+
+  // Pattern 1: "Invoice No." or "Invoice No" followed by a value (possibly on next line)
+  const invNoPatterns = [
+    /Invoice\s*No\.?\s*[:\-]?\s*\n?\s*([A-Z0-9][A-Z0-9\/\-\.]{2,30})/i,
+    /Bill\s*No\.?\s*[:\-]?\s*\n?\s*([A-Z0-9][A-Z0-9\/\-\.]{2,30})/i,
+    /Tax\s*Invoice\s*No\.?\s*[:\-]?\s*\n?\s*([A-Z0-9][A-Z0-9\/\-\.]{2,30})/i,
+    /Inv\.?\s*No\.?\s*[:\-]?\s*\n?\s*([A-Z0-9][A-Z0-9\/\-\.]{2,30})/i,
+    /Invoice\s*#\s*[:\-]?\s*\n?\s*([A-Z0-9][A-Z0-9\/\-\.]{2,30})/i,
+    // Format like TYS426/25-26 — alphanumeric with slashes and dashes
+    /\b([A-Z]{2,5}\d{3,6}\/\d{2,4}-\d{2,4})\b/,
+    // INV-, BILL-, TAX- prefixed
+    /\b((?:INV|BILL|TAX)[-#\/]?\s*[A-Z0-9\/\-]{3,20})\b/i,
+  ];
+  for (const pat of invNoPatterns) {
+    const m = fullText.match(pat);
+    if (m?.[1]) {
+      const candidate = m[1].trim();
+      // Exclude obvious dates (DD-MM-YYYY pattern)
+      if (!/^\d{1,2}[-\/]\d{1,2}[-\/]\d{2,4}$/.test(candidate)) {
+        invoiceNumber = candidate;
+        break;
+      }
+    }
+  }
 
   // ── Dates ────────────────────────────────────────────────────────
   let invoiceDate = "";
@@ -368,65 +407,102 @@ function parseInvoiceText(
     : "";
 
   // ── Line items ───────────────────────────────────────────────────
+  // Find the table section between headers and totals
   const items: OcrExtractedData["items"] = [];
-  const tableStart = fullText.search(
-    /(?:Description|Goods|Item|Product|SI\s*No)/i,
+  const tableStartIdx = fullText.search(
+    /(?:Sl\.?\s*No|S\.?\s*No|Sr\.?\s*No|Description\s+of\s+Goods|Description|Item|Product|HSN)/i,
   );
-  const tableEnd = fullText.search(
-    /(?:Total|Subtotal|CGST|SGST|IGST|Round|Grand)/i,
+  const tableEndIdx = fullText.search(
+    /(?:Taxable\s*Value|Total\s*Taxable|CGST|SGST|IGST|Grand\s*Total|Sub\s*Total|Subtotal|Round\s*Off|E\s*\&\s*O\.?\s*E)/i,
   );
   const tableSection =
-    tableStart >= 0 && tableEnd > tableStart
-      ? fullText.slice(tableStart, tableEnd)
+    tableStartIdx >= 0 && tableEndIdx > tableStartIdx
+      ? fullText.slice(tableStartIdx, tableEndIdx)
       : fullText;
 
-  const itemLineRegex =
-    /(\d+)\s+(.{3,60}?)\s+(\d{4,10})\s+([\d.]+)\s+Pcs?\s+([\d,]+\.?\d*)\s+([\d,]+\.?\d*)\s+Pcs?\s+([\d.]+)\s*%?\s+([\d,]+\.?\d*)/gi;
+  // Pattern 1: Full row with Sr.No, description, HSN, qty, unit, rate, amount
+  // Handles: "1 FANCY PARTY WEAR DUPATTA 62141090 192.00 Pcs 517.00 30 % 5 99,264.00"
+  const itemFullRegex =
+    /^(\d+)\s+(.{3,60}?)\s+(\d{4,10})\s+([\d,]+(?:\.\d+)?)\s*(Pcs?|KG|MTR|NOS?|EA|BOX|PKT|SET|PRS|LTR|GMS?|Unit|Nos?)\s+([\d,]+(?:\.\d+)?)\s*(?:([\d.]+)\s*%?)?\s*([\d.]+)\s+([\d,]+(?:\.\d+)?)/gim;
   let itemMatch: RegExpExecArray | null;
   // biome-ignore lint/suspicious/noAssignInExpressions: regex exec loop
-  while ((itemMatch = itemLineRegex.exec(tableSection)) !== null) {
+  while ((itemMatch = itemFullRegex.exec(tableSection)) !== null) {
+    const rawRate = cleanNum(itemMatch[6]);
+    const rawAmt = cleanNum(itemMatch[9]);
     items.push({
       srNo: itemMatch[1],
       productName: itemMatch[2].trim(),
       hsnSac: itemMatch[3],
-      qty: itemMatch[4],
-      unit: "Pcs",
-      rateInclTax: itemMatch[5].replace(/,/g, ""),
-      rate: itemMatch[6].replace(/,/g, ""),
-      discountPct: itemMatch[7],
-      gstRate: "5",
-      amount: itemMatch[8].replace(/,/g, ""),
+      qty: cleanNum(itemMatch[4]),
+      unit: itemMatch[5] || "Pcs",
+      rateInclTax: "",
+      rate: rawRate,
+      discountPct: itemMatch[7] ?? "0",
+      gstRate: cleanNum(itemMatch[8]),
+      amount: rawAmt,
     });
   }
 
+  // Pattern 2: Row without unit column (simpler format)
   if (items.length === 0) {
-    for (const line of tableSection.split("\n")) {
-      const simpleMatch = line.match(
-        /(.{3,50})\s+(\d{6,10})\s+([\d.]+)\s+([\d,]+\.?\d*)/,
-      );
-      if (
-        simpleMatch &&
-        !/total|gst|cgst|sgst|igst|tax|disc|amount|qty/i.test(line)
-      ) {
-        items.push({
-          srNo: String(items.length + 1),
-          productName: simpleMatch[1].trim(),
-          hsnSac: simpleMatch[2],
-          qty: simpleMatch[3],
-          unit: "Pcs",
-          rateInclTax: "",
-          rate: simpleMatch[4].replace(/,/g, ""),
-          discountPct: "0",
-          gstRate: "5",
-          amount: simpleMatch[4].replace(/,/g, ""),
-        });
-      }
+    const itemSimpleRegex =
+      /^(\d+)\s+(.{3,60}?)\s+(\d{4,10})\s+([\d,]+(?:\.\d+)?)\s+([\d,]+(?:\.\d+)?)\s+([\d,]+(?:\.\d+)?)/gim;
+    // biome-ignore lint/suspicious/noAssignInExpressions: regex exec loop
+    while ((itemMatch = itemSimpleRegex.exec(tableSection)) !== null) {
+      const line = itemMatch[0];
+      if (/total|gst|cgst|sgst|igst|tax|disc|amount|qty/i.test(line)) continue;
+      items.push({
+        srNo: itemMatch[1],
+        productName: itemMatch[2].trim(),
+        hsnSac: itemMatch[3],
+        qty: cleanNum(itemMatch[4]),
+        unit: "Pcs",
+        rateInclTax: "",
+        rate: cleanNum(itemMatch[5]),
+        discountPct: "0",
+        gstRate: "5",
+        amount: cleanNum(itemMatch[6]),
+      });
     }
   }
 
+  // Pattern 3: Line-by-line scan for HSN codes as anchor
   if (items.length === 0) {
-    const amtMatch = fullText.match(/(?:₹|Rs\.?|INR)\s*([\d,]+(?:\.\d{2})?)/g);
-    const rawAmt = amtMatch?.[0]?.replace(/[₹Rs.,\s]/gi, "") ?? "0";
+    for (const line of tableSection.split("\n")) {
+      const hsnMatch = line.match(/\b(\d{6,8})\b/);
+      if (!hsnMatch) continue;
+      const hsnCode = hsnMatch[1];
+      // Extract numbers from the line
+      const nums = [...line.matchAll(/([\d,]+\.\d{2})/g)].map((m) =>
+        cleanNum(m[1]),
+      );
+      const name = line
+        .substring(0, line.indexOf(hsnCode))
+        .replace(/^\d+\s*/, "")
+        .trim();
+      if (name.length < 3) continue;
+      items.push({
+        srNo: String(items.length + 1),
+        productName: name,
+        hsnSac: hsnCode,
+        qty: "1",
+        unit: "Pcs",
+        rateInclTax: "",
+        rate: nums[nums.length - 2] ?? nums[0] ?? "0",
+        discountPct: "0",
+        gstRate: "5",
+        amount: nums[nums.length - 1] ?? nums[0] ?? "0",
+      });
+    }
+  }
+
+  // Fallback: one item with best-guess amount
+  if (items.length === 0) {
+    // Try to find the largest number in the invoice as the total
+    const allNums = [...fullText.matchAll(/([\d,]+\.\d{2})/g)].map((m) =>
+      Number.parseFloat(cleanNum(m[1])),
+    );
+    const maxAmt = allNums.length > 0 ? Math.max(...allNums) : 0;
     items.push({
       srNo: "1",
       productName: "Item from scanned invoice",
@@ -434,10 +510,10 @@ function parseInvoiceText(
       qty: "1",
       unit: "Pcs",
       rateInclTax: "",
-      rate: rawAmt,
+      rate: maxAmt > 0 ? maxAmt.toString() : "0",
       discountPct: "0",
       gstRate: "5",
-      amount: rawAmt,
+      amount: maxAmt > 0 ? maxAmt.toString() : "0",
     });
   }
 
@@ -453,19 +529,58 @@ function parseInvoiceText(
     igstRate !== "0"
       ? String(Number.parseFloat(igstRate))
       : String(Number.parseFloat(cgstRate) + Number.parseFloat(sgstRate));
-  for (const item of items) item.gstRate = detectedGstRate;
+  for (const item of items) {
+    if (item.gstRate === "5") item.gstRate = detectedGstRate;
+  }
 
   // ── Tax amounts ──────────────────────────────────────────────────
-  const cgstAmtMatch = fullText.match(/CGST\s*\n?\s*([\d,]+\.\d{2})/i);
-  const sgstAmtMatch = fullText.match(/SGST\s*\n?\s*([\d,]+\.\d{2})/i);
-  const igstAmtMatch = fullText.match(/IGST\s*\n?\s*([\d,]+\.\d{2})/i);
-  const roundOffMatch = fullText.match(/Round\s*Off\s*\n?\s*([-\d.,]+)/i);
-  const taxableMatch = fullText.match(
-    /Taxable\s*(?:Value|Amount)[:\s]*\n?\s*([\d,]+\.\d{2})/i,
+  // Use multiline approach: find "CGST" label then number on same or next line
+  const cgstAmtMatch = fullText.match(/CGST[^\n]*?([\d,]+\.\d{2})/i);
+  const sgstAmtMatch = fullText.match(/SGST[^\n]*?([\d,]+\.\d{2})/i);
+  const igstAmtMatch = fullText.match(/IGST[^\n]*?([\d,]+\.\d{2})/i);
+  const roundOffMatch = fullText.match(
+    /Round\s*Off[^\n]*?([-]?\s*[\d,]+\.\d{2})/i,
   );
-  const totalMatch =
-    fullText.match(/(?:Grand\s*)?Total[:\s]*(?:Rs\.?|₹)?\s*([\d,]+\.\d{2})/i) ||
-    fullText.match(/Rs\s+([\d,]+\.\d{2})/i);
+  const taxableMatch = fullText.match(
+    /Taxable\s*(?:Value|Amount)[^₹\d]*([\d,]+\.\d{2})/i,
+  );
+
+  // Total: look for "Total" preceded by grand/invoice total context
+  // Strategy: collect all labeled totals and pick the largest (most likely the grand total)
+  let totalAmount = "";
+  const totalPatterns = [
+    /Grand\s*Total[^₹\d]*([\d,]+\.\d{2})/i,
+    /Invoice\s*Total[^₹\d]*([\d,]+\.\d{2})/i,
+    /Amount\s*Chargeable[^₹\d]*([\d,]+\.\d{2})/i,
+    // "Total" at the end of a line followed by a number
+    /\bTotal\b[^\n]*?([\d,]+\.\d{2})/i,
+    // Number after Rs. near end of document
+    /Rs\.?\s*([\d,]+\.\d{2})\s*(?:Only|$)/i,
+  ];
+  const totalCandidates: number[] = [];
+  for (const pat of totalPatterns) {
+    const m = fullText.match(pat);
+    if (m?.[1]) {
+      const v = Number.parseFloat(cleanNum(m[1]));
+      if (v > 0) totalCandidates.push(v);
+    }
+  }
+  if (totalCandidates.length > 0) {
+    // Pick the largest value as grand total
+    totalAmount = Math.max(...totalCandidates).toFixed(2);
+  }
+
+  // Fallback: sum items if we have them
+  if (!totalAmount && items.length > 0) {
+    const summedTotal = items.reduce(
+      (s, it) => s + (Number.parseFloat(it.amount) || 0),
+      0,
+    );
+    const taxFactor =
+      1 + (Number.parseFloat(cgstRate) + Number.parseFloat(sgstRate)) / 100;
+    totalAmount = (summedTotal * taxFactor).toFixed(2);
+  }
+
   const amtWordsMatch = fullText.match(
     /Amount\s*Chargeable[^:]*[:\s]+\n?\s*((?:INR|Rupees)\s+.{5,150}?(?:Only|only))/i,
   );
@@ -475,9 +590,11 @@ function parseInvoiceText(
 
   // ── Bank details ─────────────────────────────────────────────────
   const bankNameMatch = fullText.match(/Bank\s*Name\s*[:\-]\s*([^\n]{3,60})/i);
-  const bankAccMatch = fullText.match(/A\/C?\s*No\.?\s*[:\-]\s*([\d]{6,18})/i);
+  const bankAccMatch = fullText.match(
+    /A\/C?\s*(?:No\.?|Number)[:\-]?\s*([\d\s]{6,20})/i,
+  );
   const bankIfscMatch = fullText.match(
-    /(?:IFS\s*Code?|IFSC)[:\s]*([A-Z]{4}0[A-Z0-9]{6})/i,
+    /(?:IFS\s*(?:Code?|C)|IFSC)[:\s]*([A-Z]{4}0[A-Z0-9]{6})/i,
   );
   const bankBranchMatch = fullText.match(
     /(?:Branch|Branch\s*&\s*IFS)[:\s]*([^\n]{3,80})/i,
@@ -517,19 +634,19 @@ function parseInvoiceText(
     destination: destinationMatch?.[1]?.trim() ?? "",
     termsOfDelivery: termsOfDeliveryMatch?.[1]?.trim() ?? "",
     items: items.slice(0, 15),
-    taxableValue: taxableMatch?.[1]?.replace(/,/g, "") ?? "",
+    taxableValue: taxableMatch?.[1] ? cleanNum(taxableMatch[1]) : "",
     cgstRate,
-    cgstAmount: cgstAmtMatch?.[1]?.replace(/,/g, "") ?? "",
+    cgstAmount: cgstAmtMatch?.[1] ? cleanNum(cgstAmtMatch[1]) : "",
     sgstRate,
-    sgstAmount: sgstAmtMatch?.[1]?.replace(/,/g, "") ?? "",
+    sgstAmount: sgstAmtMatch?.[1] ? cleanNum(sgstAmtMatch[1]) : "",
     igstRate,
-    igstAmount: igstAmtMatch?.[1]?.replace(/,/g, "") ?? "",
-    roundOff: roundOffMatch?.[1]?.replace(/,/g, "") ?? "0",
-    totalAmount: totalMatch?.[1]?.replace(/,/g, "") ?? "",
+    igstAmount: igstAmtMatch?.[1] ? cleanNum(igstAmtMatch[1]) : "",
+    roundOff: roundOffMatch?.[1] ? cleanNum(roundOffMatch[1]) : "0",
+    totalAmount,
     amountInWords: amtWordsMatch?.[1]?.trim() ?? "",
     taxAmountInWords: taxWordsMatch?.[1]?.trim() ?? "",
     bankName: bankNameMatch?.[1]?.trim() ?? "",
-    bankAccountNo: bankAccMatch?.[1] ?? "",
+    bankAccountNo: bankAccMatch?.[1]?.replace(/\s/g, "") ?? "",
     bankIfscCode: bankIfscMatch?.[1] ?? "",
     bankBranch: bankBranchMatch?.[1]?.trim() ?? "",
     declaration: declarationMatch?.[1]?.trim().replace(/\s+/g, " ") ?? "",
@@ -662,6 +779,7 @@ export default function OcrScanModal({
   const [extractedData, setExtractedData] = useState<OcrExtractedData | null>(
     null,
   );
+  const [newProducts, setNewProducts] = useState<NewProductFromScan[]>([]);
   const [isDragging, setIsDragging] = useState(false);
   const [isApproving, setIsApproving] = useState(false);
   const [previewUrl, setPreviewUrl] = useState<string | null>(null);
@@ -676,6 +794,7 @@ export default function OcrScanModal({
     setScanProgress(0);
     setScanStatus("Initialising OCR engine…");
     setExtractedData(null);
+    setNewProducts([]);
     setIsDragging(false);
     setActiveTab("buyer");
     if (previewUrl) URL.revokeObjectURL(previewUrl);
@@ -706,11 +825,26 @@ export default function OcrScanModal({
         setScanStatus("Rendering PDF page to image…");
         setScanProgress(14);
         try {
-          // biome-ignore lint/suspicious/noExplicitAny: dynamic CDN import
-          const pdfjsLib: any = await import(
-            // @ts-expect-error dynamic CDN URL
+          const pdfjsLib = (await import(
+            // @ts-expect-error dynamic CDN URL — pdfjs-dist has no installed types
             /* @vite-ignore */ "https://cdn.jsdelivr.net/npm/pdfjs-dist@4.4.168/build/pdf.mjs"
-          );
+          )) as Record<string, unknown> & {
+            GlobalWorkerOptions: { workerSrc: string };
+            getDocument: (options: { data: ArrayBuffer }) => {
+              promise: Promise<{
+                getPage: (num: number) => Promise<{
+                  getViewport: (opts: { scale: number }) => {
+                    width: number;
+                    height: number;
+                  };
+                  render: (opts: {
+                    canvasContext: CanvasRenderingContext2D;
+                    viewport: { width: number; height: number };
+                  }) => { promise: Promise<void> };
+                }>;
+              }>;
+            };
+          };
           pdfjsLib.GlobalWorkerOptions.workerSrc =
             "https://cdn.jsdelivr.net/npm/pdfjs-dist@4.4.168/build/pdf.worker.mjs";
           const arrayBuffer = await file.arrayBuffer();
@@ -725,7 +859,6 @@ export default function OcrScanModal({
           if (ctx) {
             await page.render({ canvasContext: ctx, viewport }).promise;
             imageSource = canvas;
-            // Update preview to show rendered PDF
             canvas.toBlob((blob) => {
               if (blob) {
                 URL.revokeObjectURL(url);
@@ -735,11 +868,25 @@ export default function OcrScanModal({
           }
         } catch (pdfErr) {
           console.warn("PDF render failed, attempting direct OCR:", pdfErr);
-          // Fall through to direct OCR attempt
         }
       }
 
-      const { createWorker } = await import("tesseract.js");
+      const { createWorker } = (await import(
+        // @ts-expect-error tesseract.js loaded from CDN at runtime — not a local package
+        /* @vite-ignore */ "https://cdn.jsdelivr.net/npm/tesseract.js@5/dist/tesseract.esm.min.js"
+      )) as {
+        createWorker: (
+          lang: string,
+          oem?: number,
+          options?: Record<string, unknown>,
+        ) => Promise<{
+          setParameters: (p: Record<string, string>) => Promise<void>;
+          recognize: (src: File | HTMLCanvasElement) => Promise<{
+            data: { text: string; words: Array<{ confidence: number }> };
+          }>;
+          terminate: () => Promise<void>;
+        }>;
+      };
 
       setScanStatus("Loading language model (English + Hindi numerals)…");
       setScanProgress(18);
@@ -766,7 +913,7 @@ export default function OcrScanModal({
         },
       });
 
-      // Tune OCR parameters for printed invoice text
+      // Tune for printed invoice text
       await worker.setParameters({
         tessedit_char_whitelist: "",
         preserve_interword_spaces: "1",
@@ -879,11 +1026,46 @@ export default function OcrScanModal({
     });
   }
 
-  async function handleApprove() {
+  /** Move from review → product approval step */
+  function handleReviewNext() {
+    if (!extractedData) return;
+    // Build list of new products from items that have HSN codes
+    const prods: NewProductFromScan[] = extractedData.items
+      .filter((it) => it.productName.trim() && it.hsnSac.trim())
+      .map((it) => ({
+        productName: it.productName.trim(),
+        hsnSac: it.hsnSac.trim(),
+        gstRate: it.gstRate,
+        rate: it.rate || it.amount,
+        unit: it.unit,
+        selected: true, // selected by default
+      }));
+    setNewProducts(prods);
+    setStep("products");
+  }
+
+  function toggleProduct(idx: number) {
+    setNewProducts((prev) =>
+      prev.map((p, i) => (i === idx ? { ...p, selected: !p.selected } : p)),
+    );
+  }
+
+  function updateNewProduct(
+    idx: number,
+    field: keyof NewProductFromScan,
+    value: string | boolean,
+  ) {
+    setNewProducts((prev) =>
+      prev.map((p, i) => (i === idx ? { ...p, [field]: value } : p)),
+    );
+  }
+
+  async function handleFinalApprove() {
     if (!extractedData) return;
     setIsApproving(true);
     try {
-      await onApprove(extractedData);
+      const selectedProducts = newProducts.filter((p) => p.selected);
+      await onApprove(extractedData, selectedProducts);
     } finally {
       setIsApproving(false);
     }
@@ -1678,7 +1860,7 @@ export default function OcrScanModal({
                           updateData("totalAmount", e.target.value)
                         }
                         placeholder="104160.00"
-                        className="h-9 text-sm font-bold tabular-nums"
+                        className="h-9 text-sm font-bold tabular-nums border-primary/40"
                       />
                     </div>
                     <div className="col-span-2 space-y-1.5">
@@ -1789,9 +1971,202 @@ export default function OcrScanModal({
                 </Button>
                 <Button
                   type="button"
+                  data-ocid="ocr.review.next_button"
+                  disabled={!extractedData.customerName.trim()}
+                  onClick={handleReviewNext}
+                  className="flex-1 bg-primary text-primary-foreground hover:bg-primary/90 gap-2"
+                >
+                  <Package className="w-4 h-4" />
+                  Next: Review Products
+                </Button>
+              </div>
+            </motion.div>
+          )}
+
+          {/* ── Step 4: Product Approval ── */}
+          {step === "products" && (
+            <motion.div
+              initial={{ opacity: 0, y: 8 }}
+              animate={{ opacity: 1, y: 0 }}
+              transition={{ duration: 0.3 }}
+              className="space-y-5 mt-5"
+            >
+              <div className="flex items-start gap-3 p-4 rounded-xl bg-primary/5 border border-primary/20">
+                <Package className="w-5 h-5 text-primary mt-0.5 flex-shrink-0" />
+                <div>
+                  <p className="text-sm font-semibold text-foreground">
+                    Add products to your catalog
+                  </p>
+                  <p className="text-xs text-muted-foreground mt-0.5">
+                    The following products with HSN/SAC codes were found on the
+                    invoice. Select the ones you want to add to your Products
+                    catalog automatically.
+                  </p>
+                </div>
+              </div>
+
+              {newProducts.length === 0 ? (
+                <div
+                  className="flex flex-col items-center gap-2 py-8 text-center"
+                  data-ocid="ocr.products.empty_state"
+                >
+                  <Package className="w-10 h-10 text-muted-foreground/30" />
+                  <p className="text-sm text-muted-foreground">
+                    No new products with HSN codes found on this invoice.
+                  </p>
+                  <p className="text-xs text-muted-foreground">
+                    You can add HSN codes on the Items tab if needed.
+                  </p>
+                </div>
+              ) : (
+                <div className="space-y-3">
+                  {/* Header row */}
+                  <div className="grid grid-cols-12 gap-2 text-xs text-muted-foreground px-1">
+                    <span className="col-span-1" />
+                    <span className="col-span-3">Product Name</span>
+                    <span className="col-span-2">HSN/SAC</span>
+                    <span className="col-span-2">Rate ₹</span>
+                    <span className="col-span-2">GST %</span>
+                    <span className="col-span-2">Unit</span>
+                  </div>
+                  {newProducts.map((prod, idx) => (
+                    <div
+                      key={`${prod.hsnSac || idx}-${prod.productName}`}
+                      className={cn(
+                        "grid grid-cols-12 gap-2 items-center p-2 rounded-lg border transition-colors",
+                        prod.selected
+                          ? "border-primary/30 bg-primary/5"
+                          : "border-border bg-muted/20 opacity-60",
+                      )}
+                      data-ocid={`ocr.products.item.${idx + 1}`}
+                    >
+                      <div className="col-span-1 flex justify-center">
+                        <input
+                          type="checkbox"
+                          checked={prod.selected}
+                          onChange={() => toggleProduct(idx)}
+                          className="w-4 h-4 accent-primary cursor-pointer"
+                          data-ocid={`ocr.products.checkbox.${idx + 1}`}
+                        />
+                      </div>
+                      <div className="col-span-3">
+                        <Input
+                          value={prod.productName}
+                          onChange={(e) =>
+                            updateNewProduct(idx, "productName", e.target.value)
+                          }
+                          className="h-8 text-xs"
+                          disabled={!prod.selected}
+                        />
+                      </div>
+                      <div className="col-span-2">
+                        <Input
+                          value={prod.hsnSac}
+                          onChange={(e) =>
+                            updateNewProduct(idx, "hsnSac", e.target.value)
+                          }
+                          className="h-8 text-xs font-mono"
+                          disabled={!prod.selected}
+                        />
+                      </div>
+                      <div className="col-span-2">
+                        <Input
+                          type="number"
+                          value={prod.rate}
+                          onChange={(e) =>
+                            updateNewProduct(idx, "rate", e.target.value)
+                          }
+                          className="h-8 text-xs"
+                          min="0"
+                          step="0.01"
+                          disabled={!prod.selected}
+                        />
+                      </div>
+                      <div className="col-span-2">
+                        <Select
+                          value={prod.gstRate}
+                          onValueChange={(v) =>
+                            updateNewProduct(idx, "gstRate", v)
+                          }
+                          disabled={!prod.selected}
+                        >
+                          <SelectTrigger className="h-8 text-xs">
+                            <SelectValue />
+                          </SelectTrigger>
+                          <SelectContent>
+                            {GST_RATES.map((r) => (
+                              <SelectItem key={r} value={String(r)}>
+                                {r}%
+                              </SelectItem>
+                            ))}
+                          </SelectContent>
+                        </Select>
+                      </div>
+                      <div className="col-span-2">
+                        <Input
+                          value={prod.unit}
+                          onChange={(e) =>
+                            updateNewProduct(idx, "unit", e.target.value)
+                          }
+                          className="h-8 text-xs"
+                          disabled={!prod.selected}
+                        />
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              )}
+
+              {/* Summary */}
+              <div className="p-3 rounded-lg bg-muted/40 border border-border text-sm space-y-1">
+                <div className="flex justify-between">
+                  <span className="text-muted-foreground">Invoice No.</span>
+                  <span className="font-mono font-semibold text-primary">
+                    {extractedData?.invoiceNumber || "(not extracted)"}
+                  </span>
+                </div>
+                <div className="flex justify-between">
+                  <span className="text-muted-foreground">Customer</span>
+                  <span className="font-medium">
+                    {extractedData?.customerName || "(not extracted)"}
+                  </span>
+                </div>
+                <div className="flex justify-between">
+                  <span className="text-muted-foreground">Total Amount</span>
+                  <span className="font-bold text-primary">
+                    ₹{" "}
+                    {extractedData?.totalAmount
+                      ? Number.parseFloat(
+                          extractedData.totalAmount,
+                        ).toLocaleString("en-IN", { minimumFractionDigits: 2 })
+                      : "0.00"}
+                  </span>
+                </div>
+                <div className="flex justify-between">
+                  <span className="text-muted-foreground">Products to add</span>
+                  <span className="font-medium">
+                    {newProducts.filter((p) => p.selected).length} of{" "}
+                    {newProducts.length}
+                  </span>
+                </div>
+              </div>
+
+              {/* Actions */}
+              <div className="flex gap-3 pt-3 border-t border-border">
+                <Button
+                  type="button"
+                  variant="outline"
+                  data-ocid="ocr.products.back_button"
+                  onClick={() => setStep("review")}
+                  className="gap-2"
+                >
+                  Back
+                </Button>
+                <Button
+                  type="button"
                   data-ocid="ocr.approve.submit_button"
-                  disabled={isApproving || !extractedData.customerName.trim()}
-                  onClick={handleApprove}
+                  disabled={isApproving || !extractedData?.customerName.trim()}
+                  onClick={handleFinalApprove}
                   className="flex-1 bg-primary text-primary-foreground hover:bg-primary/90 gap-2"
                 >
                   {isApproving ? (

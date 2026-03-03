@@ -1,88 +1,37 @@
 # LekhyaAI
 
 ## Current State
+Invoice OCR scanner (OcrScanModal.tsx) runs Tesseract.js but has three critical parser bugs:
+1. Invoice number regex requires `INV|BILL|TAX` prefix or a very specific format -- misses formats like `TYS426/25-26`
+2. Total amount regex picks up the first "Total" label, which is often the subtotal, not the grand total
+3. Line item regex requires the unit label ("Pcs") to appear twice in the row, which fails for most real invoice formats
 
-LekhyaAI is a GST-compliant accounting web app for Indian SMEs with:
-- Multi-business support (one login, many businesses)
-- Invoices (CGST/SGST/IGST, status tracking, OCR scanner)
-- Customers, Vendors, Products (HSN + GST rate)
-- Expenses with GST input credit
-- GST Reports
-- Double-entry Ledger with Chart of Accounts (14 pre-seeded accounts) and Journal Entries
-- AI Assistant (rule-based)
-- Stripe subscription gating (Free / Pro)
-- Settings (theme, branding, API integrations)
-- Master Tenant Portal (/master)
-
-Backend roles currently: admin / user / guest (from Caffeine authorization component).
-
-Missing modules requested: Bank Accounts (details + opening balance + reconciliation), Petty Cash, RBAC (admin / accountant / CA roles with permissions), enhanced Journal Entry module with narration + pre-loaded General Accounts chart, P&L export, Balance Sheet export.
+After OCR completes, there is no step to add the scanned products to the Products catalog.
 
 ## Requested Changes (Diff)
 
 ### Add
-
-**1. Business Bank Accounts module**
-- BankAccount type: id, businessId, bankName, accountNumber, ifscCode, branch, accountType (current/savings/cc/od), openingBalance, openingDate, isActive
-- BankTransaction type: id, bankAccountId, date, description, debitAmount, creditAmount, reference, isReconciled, linkedJournalEntryId
-- Backend: createBankAccount, getBankAccounts, updateBankAccount, deleteBankAccount
-- Backend: createBankTransaction, getBankTransactions, reconcileTransaction (mark as reconciled), getBankReconciliationSummary (book balance, bank balance, unreconciled count)
-
-**2. Petty Cash module**
-- PettyCashAccount type: id, businessId, custodian, openingBalance, currentBalance
-- PettyCashTransaction type: id, accountId, date, description, amount, category, voucherNumber, type (receipt/payment), approvedBy
-- Backend: createPettyCashAccount, getPettyCashAccounts, createPettyCashTransaction, getPettyCashTransactions, replenishPettyCash
-
-**3. RBAC / User Management module**
-- BusinessUserRole type: businessId, userPrincipal, role (admin / accountant / ca), invitedBy, createdAt
-- Roles and permissions:
-  - admin: full access (create, edit, delete, export, manage users)
-  - accountant: create/edit invoices, expenses, journal entries, petty cash; view reports; NO delete, NO user management
-  - ca: read-only + can post journal entries + can export reports; cannot delete transactions
-- Backend: inviteUserToBusinessRole, getBusinessUsers, removeBusinessUser, getMyBusinessRole
-- Business ownership check updated to also allow users with assigned roles (not just owner)
-
-**4. Enhanced Journal Entry module**
-- JournalEntry type: id, businessId, date, entryNumber, narration, postedBy, isReversed, createdAt
-- JournalEntryLine type: id, journalEntryId, accountId, accountName, debit, credit, narration
-- Pre-loaded General Chart of Accounts (50 standard accounts covering Assets, Liabilities, Capital, Revenue, Expenses) seeded per business
-- Backend: createJournalEntry (with lines + narration), getJournalEntries, getJournalEntry, reverseJournalEntry, getChartOfAccounts, addAccount, updateAccount
-
-**5. P&L Report and Balance Sheet with Export**
-- Backend: getProfitAndLoss(businessId, fromDate, toDate) — returns revenue, cost of goods, gross profit, expenses breakdown, net profit
-- Backend: getBalanceSheet(businessId, asOfDate) — returns assets, liabilities, equity sections
-- Frontend: Export to CSV and printable PDF (using browser print API) on both report pages
+- Product approval step (Step 4) in the OCR modal: after reviewing the invoice, show a list of all line items with HSN codes and let the user select which ones to add to the Products catalog
+- Summary card in the product approval step showing invoice number, customer, total amount, and product count
+- `NewProductFromScan` export type
 
 ### Modify
-
-- **Chart of Accounts**: Expand from 14 to ~50 standard Indian accounts (include GST Payable, GST Receivable, TDS Payable, Salary Payable, Rent, Electricity, Telephone, Petty Cash Account, Bank accounts, Capital accounts, etc.)
-- **Journal Entry**: Add narration field (entry-level and line-level), link to bank/petty cash transactions
-- **Dashboard**: Add quick-glance widgets for bank balance, petty cash balance, unreconciled transactions count
-- **Settings > Users**: Add user role management section (invite users, assign roles, remove users)
-- **Sidebar navigation**: Add Bank Accounts, Petty Cash, Users sections
+- Invoice number extraction: 7-pattern cascade from most to least specific, including `[A-Z]{2,5}\d{3,6}\/\d{2,4}-\d{2,4}` for formats like TYS426/25-26; filter out date-like strings
+- Total amount extraction: collect all labeled totals (Grand Total, Invoice Total, Amount Chargeable, Total) and pick the maximum value as the grand total
+- Line item regex: rewritten to 3-tier fallback: (1) full row with optional unit column, (2) simplified 6-column format, (3) HSN-anchored line scan
+- `cleanNum()` helper added to strip commas, ₹, and whitespace from numbers
+- CGST/SGST/IGST amount extraction: use `[^\n]*?` instead of `\s*\n?\s*` to handle amounts on the same line
+- Bank account number regex: add `(?:No\.?|Number)` to avoid matching random numbers
+- `onApprove` callback signature updated to `(data, newProducts) => Promise<void>`
+- InvoicesPage `handleOcrApprove`: now accepts `NewProductFromScan[]`, creates each selected product in the catalog (skipping duplicates by HSN or name), passes customer `state` to `createCustomer`
+- Review step "Approve" button replaced with "Next: Review Products" button
 
 ### Remove
-
-Nothing removed.
+- Nothing removed
 
 ## Implementation Plan
-
-1. **Backend (main.mo)**: Add BankAccount, BankTransaction, PettyCashAccount, PettyCashTransaction, BusinessUserRole, enhanced JournalEntry/JournalEntryLine, P&L/BalanceSheet query types. Add all CRUD + reconciliation + role management functions. Update business access checks to support multi-role access.
-
-2. **Frontend — Bank Accounts page**: List of bank accounts per business with opening balance. Bank statement-style transaction list. Reconciliation view: two columns (book vs bank), tick off reconciled items, show unreconciled balance diff.
-
-3. **Frontend — Petty Cash page**: Petty cash account card showing current balance. Transaction log with voucher numbers. Replenish button (creates journal entry).
-
-4. **Frontend — Users / RBAC page**: List of users in the business with their roles. Invite by Principal ID. Role badge (Admin/Accountant/CA). Remove user button. Permission matrix display.
-
-5. **Frontend — Journal Entry page**: Enhanced form with entry-level narration, dynamic line rows (add/remove), account selector from Chart of Accounts, Dr/Cr columns, running debit/credit totals, validation (debits = credits). List view with search and date filter.
-
-6. **Frontend — Chart of Accounts**: Expandable list with account groups. Add/edit custom accounts. 50 pre-seeded accounts visible.
-
-7. **Frontend — P&L Report**: Date range selector, revenue/expense breakdown table, net profit row, Export CSV button, Export PDF button (window.print with print-specific CSS).
-
-8. **Frontend — Balance Sheet**: As-of-date picker, assets/liabilities/equity table, Export CSV and PDF buttons.
-
-9. **Frontend — Dashboard**: Add Bank Balance card, Petty Cash Balance card, Unreconciled Transactions alert.
-
-10. **Frontend — Settings > Users**: Invite user form, role assignment, user list table.
+1. Rewrite `parseInvoiceText` in OcrScanModal with fixed regexes
+2. Add `NewProductFromScan` interface and `products` step state
+3. Add Step 4 UI (product selection table + summary card)
+4. Update `onApprove` prop type and `handleOcrApprove` in InvoicesPage
+5. Import `useCreateProduct` in InvoicesPage

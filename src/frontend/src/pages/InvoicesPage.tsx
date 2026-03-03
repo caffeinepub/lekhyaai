@@ -36,6 +36,7 @@ import {
 } from "../backend.d";
 import DeleteConfirmDialog from "../components/DeleteConfirmDialog";
 import OcrScanModal, {
+  type NewProductFromScan,
   type OcrExtractedData,
 } from "../components/OcrScanModal";
 import { useBusiness } from "../context/BusinessContext";
@@ -43,6 +44,7 @@ import {
   useAddPayment,
   useCreateCustomer,
   useCreateInvoice,
+  useCreateProduct,
   useCustomers,
   useDeleteInvoice,
   useInvoices,
@@ -772,6 +774,7 @@ export default function InvoicesPage() {
   const deleteInvoice = useDeleteInvoice();
   const createInvoice = useCreateInvoice();
   const createCustomer = useCreateCustomer();
+  const createProduct = useCreateProduct();
 
   const [createOpen, setCreateOpen] = useState(false);
   const [ocrOpen, setOcrOpen] = useState(false);
@@ -804,7 +807,10 @@ export default function InvoicesPage() {
     }
   }
 
-  async function handleOcrApprove(data: OcrExtractedData) {
+  async function handleOcrApprove(
+    data: OcrExtractedData,
+    newProducts: NewProductFromScan[],
+  ) {
     // Step 1: Find or create customer
     let customerId: bigint;
     const existingCustomer = customers.find(
@@ -814,13 +820,14 @@ export default function InvoicesPage() {
     if (existingCustomer) {
       customerId = existingCustomer.id;
     } else if (data.customerName.trim()) {
-      // Auto-create customer
+      // Auto-create customer with state info
       customerId = await createCustomer.mutateAsync({
         name: data.customerName,
         gstin: data.customerGstin,
         phone: data.customerPhone,
         email: data.customerEmail,
         address: data.customerAddress,
+        state: data.customerState,
       });
       toast.success(`Customer "${data.customerName}" added automatically`);
     } else {
@@ -828,7 +835,45 @@ export default function InvoicesPage() {
       return;
     }
 
-    // Step 2: Create invoice — apply discount to price before storing
+    // Step 2: Auto-add selected new products to the catalog
+    if (newProducts.length > 0) {
+      let addedCount = 0;
+      for (const prod of newProducts) {
+        // Check if a product with this HSN already exists
+        const alreadyExists = products.some(
+          (p) =>
+            p.hsnCode === prod.hsnSac ||
+            p.name.toLowerCase().trim() ===
+              prod.productName.toLowerCase().trim(),
+        );
+        if (!alreadyExists) {
+          try {
+            const sellingPricePaise = BigInt(
+              Math.round((Number.parseFloat(prod.rate) || 0) * 100),
+            );
+            await createProduct.mutateAsync({
+              name: prod.productName,
+              hsnCode: prod.hsnSac,
+              gstRate: BigInt(Math.round(Number.parseFloat(prod.gstRate) || 5)),
+              purchasePrice: sellingPricePaise,
+              sellingPrice: sellingPricePaise,
+              stockQuantity: 0n,
+            });
+            addedCount++;
+          } catch {
+            // Non-fatal, continue
+          }
+        }
+      }
+      if (addedCount > 0) {
+        toast.success(
+          `${addedCount} product${addedCount > 1 ? "s" : ""} added to your catalog`,
+        );
+      }
+    }
+
+    // Step 3: Create invoice — apply discount to price before storing
+    const today = new Date().toISOString().split("T")[0];
     const invoiceItems: Array<[bigint, string, bigint, bigint, bigint]> =
       data.items.map((item) => {
         const price =
@@ -836,10 +881,10 @@ export default function InvoicesPage() {
         const disc = Number.parseFloat(item.discountPct) || 0;
         const discountedPrice = price * (1 - disc / 100);
         const label = item.hsnSac
-          ? `${item.productName} [${item.hsnSac}]`
+          ? `${item.productName} [HSN: ${item.hsnSac}]`
           : item.productName;
         return [
-          0n, // no productId
+          0n, // no productId (by-name line item)
           label,
           BigInt(Math.round(Number.parseFloat(item.qty) || 1)),
           BigInt(Math.round(discountedPrice * 100)),
@@ -850,14 +895,8 @@ export default function InvoicesPage() {
     await createInvoice.mutateAsync({
       customerId,
       invoiceNumber: data.invoiceNumber || nextInvoiceNumber,
-      invoiceDate: dateStringToNs(
-        data.invoiceDate || new Date().toISOString().split("T")[0],
-      ),
-      dueDate: dateStringToNs(
-        data.dueDate ||
-          data.invoiceDate ||
-          new Date().toISOString().split("T")[0],
-      ),
+      invoiceDate: dateStringToNs(data.invoiceDate || today),
+      dueDate: dateStringToNs(data.dueDate || data.invoiceDate || today),
       items:
         invoiceItems.length > 0
           ? invoiceItems
@@ -1085,7 +1124,7 @@ export default function InvoicesPage() {
         open={ocrOpen}
         onClose={() => setOcrOpen(false)}
         customers={customers}
-        onApprove={handleOcrApprove}
+        onApprove={(data, newProds) => handleOcrApprove(data, newProds)}
       />
       <PaymentModal
         open={paymentInvoiceId !== null}

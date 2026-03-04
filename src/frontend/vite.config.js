@@ -17,7 +17,36 @@ export default defineConfig({
   build: {
     emptyOutDir: true,
     sourcemap: false,
-    minify: false,
+    minify: "esbuild",
+    target: "es2020",
+    chunkSizeWarningLimit: 1000,
+    rollupOptions: {
+      output: {
+        manualChunks: {
+          "vendor-react": ["react", "react-dom"],
+          "vendor-dfinity": [
+            "@dfinity/agent",
+            "@dfinity/identity",
+            "@dfinity/auth-client",
+            "@dfinity/candid",
+            "@dfinity/principal",
+          ],
+          "vendor-ui": [
+            "@radix-ui/react-dialog",
+            "@radix-ui/react-dropdown-menu",
+            "@radix-ui/react-select",
+            "@radix-ui/react-tabs",
+            "@radix-ui/react-tooltip",
+            "@radix-ui/react-popover",
+            "@radix-ui/react-checkbox",
+            "@radix-ui/react-switch",
+          ],
+          "vendor-charts": ["recharts"],
+          "vendor-router": ["@tanstack/react-router"],
+          "vendor-motion": ["motion"],
+        },
+      },
+    },
   },
   css: {
     postcss: "./postcss.config.js",

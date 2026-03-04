@@ -1,5 +1,6 @@
 import { AnimatePresence, motion } from "motion/react";
 import { useEffect, useState } from "react";
+import MandalaDecor from "./MandalaDecor";
 
 interface SplashScreenProps {
   onDone: () => void;
@@ -43,6 +44,60 @@ export default function SplashScreen({ onDone }: SplashScreenProps) {
             }}
           />
 
+          {/* Corner mandalas — Indian economic design */}
+          <motion.div
+            initial={{ opacity: 0, scale: 0.7, rotate: -15 }}
+            animate={{ opacity: 1, scale: 1, rotate: 0 }}
+            transition={{ delay: 0.2, duration: 1.0 }}
+            className="absolute top-0 left-0 pointer-events-none"
+            style={{ transform: "translate(-25%, -25%)" }}
+          >
+            <MandalaDecor
+              size={220}
+              opacity={0.18}
+              style={{ color: "oklch(0.75 0.15 75)" }}
+            />
+          </motion.div>
+          <motion.div
+            initial={{ opacity: 0, scale: 0.7, rotate: 15 }}
+            animate={{ opacity: 1, scale: 1, rotate: 0 }}
+            transition={{ delay: 0.25, duration: 1.0 }}
+            className="absolute top-0 right-0 pointer-events-none"
+            style={{ transform: "translate(25%, -25%)" }}
+          >
+            <MandalaDecor
+              size={200}
+              opacity={0.15}
+              style={{ color: "oklch(0.55 0.14 185)" }}
+            />
+          </motion.div>
+          <motion.div
+            initial={{ opacity: 0, scale: 0.7, rotate: 15 }}
+            animate={{ opacity: 1, scale: 1, rotate: 0 }}
+            transition={{ delay: 0.3, duration: 1.0 }}
+            className="absolute bottom-8 left-0 pointer-events-none"
+            style={{ transform: "translate(-30%, 20%)" }}
+          >
+            <MandalaDecor
+              size={180}
+              opacity={0.14}
+              style={{ color: "oklch(0.55 0.14 185)" }}
+            />
+          </motion.div>
+          <motion.div
+            initial={{ opacity: 0, scale: 0.7, rotate: -15 }}
+            animate={{ opacity: 1, scale: 1, rotate: 0 }}
+            transition={{ delay: 0.35, duration: 1.0 }}
+            className="absolute bottom-8 right-0 pointer-events-none"
+            style={{ transform: "translate(30%, 20%)" }}
+          >
+            <MandalaDecor
+              size={190}
+              opacity={0.16}
+              style={{ color: "oklch(0.75 0.15 75)" }}
+            />
+          </motion.div>
+
           {/* Main content */}
           <motion.div
             initial={{ scale: 0.8, opacity: 0, y: 20 }}
@@ -61,10 +116,21 @@ export default function SplashScreen({ onDone }: SplashScreenProps) {
               transition={{ duration: 0.8, ease: [0.34, 1.56, 0.64, 1] }}
               className="relative"
             >
+              {/* Mandala ring behind logo */}
+              <div
+                className="absolute inset-0 flex items-center justify-center"
+                style={{ transform: "scale(2.6)" }}
+              >
+                <MandalaDecor
+                  size={96}
+                  opacity={0.28}
+                  style={{ color: "oklch(0.75 0.15 75)" }}
+                />
+              </div>
               <img
                 src="/assets/generated/lekhyaai-logo.dim_512x512.png"
                 alt="LekhyaAI Logo"
-                className="w-24 h-24 rounded-2xl shadow-2xl"
+                className="w-24 h-24 rounded-2xl shadow-2xl relative z-10"
                 onError={(e) => {
                   // Fallback to text logo if image fails
                   const target = e.currentTarget;
@@ -75,7 +141,7 @@ export default function SplashScreen({ onDone }: SplashScreenProps) {
               />
               {/* Fallback logo */}
               <div
-                className="w-24 h-24 rounded-2xl shadow-2xl items-center justify-center hidden"
+                className="w-24 h-24 rounded-2xl shadow-2xl items-center justify-center hidden relative z-10"
                 style={{
                   backgroundColor: "oklch(0.55 0.14 185)",
                   display: "none",
@@ -91,7 +157,7 @@ export default function SplashScreen({ onDone }: SplashScreenProps) {
 
               {/* Glowing ring */}
               <div
-                className="absolute inset-0 rounded-2xl"
+                className="absolute inset-0 rounded-2xl z-10"
                 style={{
                   boxShadow:
                     "0 0 40px oklch(0.55 0.14 185 / 0.6), 0 0 80px oklch(0.55 0.14 185 / 0.3)",

@@ -23,12 +23,12 @@ import { useActor } from "../hooks/useActor";
 import { useInternetIdentity } from "../hooks/useInternetIdentity";
 import {
   type StoredMessage,
-  callQwenApi,
+  callLlamaApi,
   clearChatHistory,
   getChatHistory,
-  getQwenConfig,
+  getLlamaConfig,
   saveChatHistory,
-} from "../utils/qwenAi";
+} from "../utils/llamaAi";
 
 interface Message {
   id: string;
@@ -165,8 +165,8 @@ export default function AiAssistantPage() {
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLInputElement>(null);
 
-  const qwenCfg = getQwenConfig();
-  const hasApiKey = !!qwenCfg.apiKey;
+  const llamaCfg = getLlamaConfig();
+  const hasApiKey = !!llamaCfg.apiKey;
 
   // Persist messages to localStorage
   // biome-ignore lint/correctness/useExhaustiveDependencies: persist on messages change
@@ -300,16 +300,19 @@ Always be professional but friendly. Format financial outputs as ₹ X,XX,XXX`;
         ];
 
         try {
-          responseContent = await callQwenApi(apiMessages);
-          usedModel = qwenCfg.model;
+          responseContent = await callLlamaApi(apiMessages);
+          usedModel = llamaCfg.model;
         } catch (apiErr: unknown) {
           const errMsg = apiErr instanceof Error ? apiErr.message : "Unknown";
           if (errMsg === "CORS_ERROR") {
             responseContent =
-              "⚠️ Unable to reach Qwen AI. This may be due to browser CORS restrictions. The DashScope API may not allow direct browser requests.\n\nFalling back to rule-based responses. To use live AI, consider setting up a backend proxy.";
+              "⚠️ Unable to reach Llama AI (Groq). This may be a network issue.\n\nFalling back to rule-based responses. Please check your API key and network connection.";
           } else if (errMsg === "INVALID_API_KEY") {
             responseContent =
-              "⚠️ Invalid Qwen API key. Please check your key in Settings > AI Engine Configuration.";
+              "⚠️ Invalid Groq API key. Get your free key at console.groq.com and update it in Settings > AI Engine Configuration.";
+          } else if (errMsg === "RATE_LIMIT") {
+            responseContent =
+              "⚠️ Groq rate limit reached. Free tier allows 30 requests/minute. Please wait a moment and try again.";
           } else {
             // Fallback to rule-based
             responseContent = getRuleBasedResponse(
@@ -384,7 +387,7 @@ Always be professional but friendly. Format financial outputs as ₹ X,XX,XXX`;
                 variant="outline"
               >
                 <Zap className="w-2.5 h-2.5 mr-1 fill-current" />
-                {hasApiKey ? "Qwen AI Powered" : "Rule-Based Engine"}
+                {hasApiKey ? "Llama AI Powered" : "Rule-Based Engine"}
               </Badge>
             </div>
             <div className="flex items-center gap-1.5 mt-0.5">
@@ -429,11 +432,12 @@ Always be professional but friendly. Format financial outputs as ₹ X,XX,XXX`;
               <AlertTriangle className="w-4 h-4 text-warning flex-shrink-0 mt-0.5" />
               <div className="flex-1 min-w-0">
                 <p className="text-xs text-warning font-medium">
-                  Configure your Qwen API key in{" "}
+                  Configure your free Groq API key in{" "}
                   <Link to="/settings" className="underline font-semibold">
                     Settings &gt; AI Engine
                   </Link>{" "}
-                  to enable live AI responses
+                  to enable live Llama AI responses. Get your key at{" "}
+                  <span className="font-semibold">console.groq.com</span>
                 </p>
               </div>
             </div>
@@ -449,11 +453,13 @@ Always be professional but friendly. Format financial outputs as ₹ X,XX,XXX`;
               </div>
               <div className="flex-1 min-w-0">
                 <p className="text-xs font-semibold text-foreground">
-                  Powered by {qwenCfg.model} · LekhyaAI GST Intelligence Engine
+                  Meta {llamaCfg.model} via Groq · LekhyaAI GST Intelligence
+                  Engine
                 </p>
                 <p className="text-[11px] text-muted-foreground leading-relaxed mt-0.5">
-                  Live AI with access to your business data — GST calculations,
-                  invoice analysis, cash flow predictions, and tax guidance.
+                  Live Llama AI with access to your business data — GST
+                  calculations, invoice analysis, cash flow predictions, and
+                  Indian tax guidance.
                 </p>
               </div>
             </div>
@@ -684,7 +690,7 @@ function getRuleBasedResponse(
       Math.max(1, paid.length / 4);
     const monthlyExp =
       allExpenses.reduce((s, e) => s + Number(e.amount), 0) / 100 / 3;
-    return `**Cash Flow Forecast (Next 3 Months):**\n\nBased on your historical data:\n• Projected Monthly Revenue: ₹${monthlyRev.toLocaleString("en-IN", { minimumFractionDigits: 2 })}\n• Projected Monthly Expenses: ₹${monthlyExp.toLocaleString("en-IN", { minimumFractionDigits: 2 })}\n• Estimated Net Cash Flow: ₹${(monthlyRev - monthlyExp).toLocaleString("en-IN", { minimumFractionDigits: 2 })}\n\nNote: For more accurate predictions, configure your Qwen API key in Settings.`;
+    return `**Cash Flow Forecast (Next 3 Months):**\n\nBased on your historical data:\n• Projected Monthly Revenue: ₹${monthlyRev.toLocaleString("en-IN", { minimumFractionDigits: 2 })}\n• Projected Monthly Expenses: ₹${monthlyExp.toLocaleString("en-IN", { minimumFractionDigits: 2 })}\n• Estimated Net Cash Flow: ₹${(monthlyRev - monthlyExp).toLocaleString("en-IN", { minimumFractionDigits: 2 })}\n\nNote: For more accurate AI predictions, configure your Groq API key in Settings.`;
   }
 
   if (
@@ -703,7 +709,7 @@ function getRuleBasedResponse(
 
   if (q.includes("expense") || q.includes("spend") || q.includes("top 5")) {
     const total = allExpenses.reduce((s, e) => s + Number(e.amount), 0);
-    return `**Expense Summary:**\n• Total expenses: ₹${(total / 100).toLocaleString("en-IN", { minimumFractionDigits: 2 })}\n• Total GST input credit: ₹${(allExpenses.reduce((s, e) => s + Number(e.gstAmount), 0) / 100).toLocaleString("en-IN", { minimumFractionDigits: 2 })}\n\nTip: Configure your Qwen API key for detailed expense analysis and category breakdown.`;
+    return `**Expense Summary:**\n• Total expenses: ₹${(total / 100).toLocaleString("en-IN", { minimumFractionDigits: 2 })}\n• Total GST input credit: ₹${(allExpenses.reduce((s, e) => s + Number(e.gstAmount), 0) / 100).toLocaleString("en-IN", { minimumFractionDigits: 2 })}\n\nTip: Configure your Groq API key (console.groq.com) for detailed Llama AI expense analysis.`;
   }
 
   if (
@@ -714,5 +720,5 @@ function getRuleBasedResponse(
     return `**Invoice Summary:**\n• Total invoices: ${allInvoices.length}\n• Paid: ${paid}\n• Overdue: ${allInvoices.filter((i) => i.status === "overdue").length}\n• Draft: ${allInvoices.filter((i) => i.status === "draft").length}`;
   }
 
-  return "I'm your AI accounting assistant for LekhyaAI. I can help you with:\n• GST liability calculation\n• Overdue invoice tracking\n• Cash flow predictions\n• CGST/SGST/IGST rules\n• Composition scheme\n• Invoice and expense summaries\n\nTip: Configure your **Qwen API key** in Settings to unlock full AI-powered responses!";
+  return "I'm your AI accounting assistant for LekhyaAI. I can help you with:\n• GST liability calculation\n• Overdue invoice tracking\n• Cash flow predictions\n• CGST/SGST/IGST rules\n• Composition scheme\n• Invoice and expense summaries\n\nTip: Configure your **free Groq API key** (console.groq.com) in Settings to unlock full **Llama AI**-powered responses!";
 }

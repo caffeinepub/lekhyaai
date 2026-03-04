@@ -766,6 +766,107 @@ function SectionHeader({
   );
 }
 
+// ─── Image processing utilities ─────────────────────────────────────
+
+/**
+ * Preprocess image on a canvas for better OCR accuracy:
+ * - Upscale small images to at least 2400px on longest side
+ * - Increase contrast (helps with faded/low-contrast invoices)
+ * - Convert to greyscale
+ */
+function preprocessImageForOcr(
+  source: HTMLCanvasElement | HTMLImageElement,
+): HTMLCanvasElement {
+  const srcW =
+    source instanceof HTMLCanvasElement ? source.width : source.naturalWidth;
+  const srcH =
+    source instanceof HTMLCanvasElement ? source.height : source.naturalHeight;
+
+  const minDim = 2400;
+  const scale = Math.max(1, minDim / Math.max(srcW, srcH));
+  const w = Math.round(srcW * scale);
+  const h = Math.round(srcH * scale);
+
+  const canvas = document.createElement("canvas");
+  canvas.width = w;
+  canvas.height = h;
+  const ctx = canvas.getContext("2d");
+  if (!ctx) return canvas;
+
+  ctx.drawImage(source as CanvasImageSource, 0, 0, w, h);
+
+  const imageData = ctx.getImageData(0, 0, w, h);
+  const data = imageData.data;
+  const contrast = 1.35;
+  const intercept = 128 * (1 - contrast);
+  for (let i = 0; i < data.length; i += 4) {
+    const gray = 0.299 * data[i] + 0.587 * data[i + 1] + 0.114 * data[i + 2];
+    const adjusted = Math.min(255, Math.max(0, gray * contrast + intercept));
+    data[i] = adjusted;
+    data[i + 1] = adjusted;
+    data[i + 2] = adjusted;
+  }
+  ctx.putImageData(imageData, 0, 0);
+  return canvas;
+}
+
+/** Load a File (image) into a canvas element for OCR preprocessing */
+function loadImageAsCanvas(file: File): Promise<HTMLCanvasElement> {
+  return new Promise((resolve, reject) => {
+    const img = new Image();
+    const objectUrl = URL.createObjectURL(file);
+    img.onload = () => {
+      URL.revokeObjectURL(objectUrl);
+      // Target: at least 2400px on longest side for good OCR
+      const minDim = 2400;
+      const srcW = img.naturalWidth;
+      const srcH = img.naturalHeight;
+      const scale = Math.max(1, minDim / Math.max(srcW, srcH));
+      const w = Math.round(srcW * scale);
+      const h = Math.round(srcH * scale);
+
+      const canvas = document.createElement("canvas");
+      canvas.width = w;
+      canvas.height = h;
+      const ctx = canvas.getContext("2d");
+      if (!ctx) {
+        resolve(canvas);
+        return;
+      }
+
+      // Draw scaled image
+      ctx.drawImage(img, 0, 0, w, h);
+
+      // Apply contrast boost for better OCR accuracy on printed text
+      const imageData = ctx.getImageData(0, 0, w, h);
+      const data = imageData.data;
+      const contrast = 1.4; // 40% contrast boost
+      const intercept = 128 * (1 - contrast);
+      for (let i = 0; i < data.length; i += 4) {
+        // Convert to greyscale (luminance formula)
+        const gray =
+          0.299 * data[i] + 0.587 * data[i + 1] + 0.114 * data[i + 2];
+        // Apply contrast
+        const adjusted = Math.min(
+          255,
+          Math.max(0, gray * contrast + intercept),
+        );
+        data[i] = adjusted;
+        data[i + 1] = adjusted;
+        data[i + 2] = adjusted;
+        // alpha stays
+      }
+      ctx.putImageData(imageData, 0, 0);
+      resolve(canvas);
+    };
+    img.onerror = () => {
+      URL.revokeObjectURL(objectUrl);
+      reject(new Error("Failed to load image"));
+    };
+    img.src = objectUrl;
+  });
+}
+
 // ─── Main Modal ────────────────────────────────────────────────────
 
 export default function OcrScanModal({
@@ -816,17 +917,18 @@ export default function OcrScanModal({
     setPreviewUrl(url);
 
     try {
-      setScanStatus("Initialising Tesseract OCR engine…");
+      setScanStatus("Preparing image for OCR…");
       setScanProgress(10);
 
-      // For PDFs: render first page to canvas, then OCR the canvas image
-      let imageSource: File | HTMLCanvasElement = file;
+      // ── Render source to a preprocessed canvas ────────────────────
+      let ocrCanvas: HTMLCanvasElement;
+
       if (file.type === "application/pdf") {
         setScanStatus("Rendering PDF page to image…");
         setScanProgress(14);
         try {
           const pdfjsLib = (await import(
-            // @ts-expect-error dynamic CDN URL — pdfjs-dist has no installed types
+            // @ts-expect-error dynamic CDN URL
             /* @vite-ignore */ "https://cdn.jsdelivr.net/npm/pdfjs-dist@4.4.168/build/pdf.mjs"
           )) as Record<string, unknown> & {
             GlobalWorkerOptions: { workerSrc: string };
@@ -851,45 +953,68 @@ export default function OcrScanModal({
           const pdfDoc = await pdfjsLib.getDocument({ data: arrayBuffer })
             .promise;
           const page = await pdfDoc.getPage(1);
-          const viewport = page.getViewport({ scale: 2.5 });
-          const canvas = document.createElement("canvas");
-          canvas.width = viewport.width;
-          canvas.height = viewport.height;
-          const ctx = canvas.getContext("2d");
+          const viewport = page.getViewport({ scale: 3.0 }); // High-res render
+          const rawCanvas = document.createElement("canvas");
+          rawCanvas.width = viewport.width;
+          rawCanvas.height = viewport.height;
+          const ctx = rawCanvas.getContext("2d");
           if (ctx) {
             await page.render({ canvasContext: ctx, viewport }).promise;
-            imageSource = canvas;
-            canvas.toBlob((blob) => {
+            ocrCanvas = preprocessImageForOcr(rawCanvas);
+            rawCanvas.toBlob((blob) => {
               if (blob) {
                 URL.revokeObjectURL(url);
                 setPreviewUrl(URL.createObjectURL(blob));
               }
             });
+          } else {
+            // Fallback — load as image
+            ocrCanvas = document.createElement("canvas");
           }
         } catch (pdfErr) {
-          console.warn("PDF render failed, attempting direct OCR:", pdfErr);
+          console.warn("PDF render failed, will OCR raw file:", pdfErr);
+          // Create an image from the file and preprocess it
+          ocrCanvas = await loadImageAsCanvas(file);
         }
+      } else {
+        // For images: load into canvas then preprocess
+        setScanStatus("Preprocessing image for accuracy…");
+        setScanProgress(14);
+        ocrCanvas = await loadImageAsCanvas(file);
       }
 
-      const { createWorker } = (await import(
-        // @ts-expect-error tesseract.js loaded from CDN at runtime — not a local package
-        /* @vite-ignore */ "https://cdn.jsdelivr.net/npm/tesseract.js@5/dist/tesseract.esm.min.js"
-      )) as {
-        createWorker: (
-          lang: string,
-          oem?: number,
-          options?: Record<string, unknown>,
-        ) => Promise<{
-          setParameters: (p: Record<string, string>) => Promise<void>;
-          recognize: (src: File | HTMLCanvasElement) => Promise<{
-            data: { text: string; words: Array<{ confidence: number }> };
-          }>;
-          terminate: () => Promise<void>;
-        }>;
-      };
-
-      setScanStatus("Loading language model (English + Hindi numerals)…");
       setScanProgress(18);
+      setScanStatus("Loading OCR engine (Tesseract.js)…");
+
+      // ── Load Tesseract.js ─────────────────────────────────────────
+      // Try npm package first, fallback to CDN
+      type TesseractWorker = {
+        setParameters: (p: Record<string, string>) => Promise<void>;
+        recognize: (src: HTMLCanvasElement) => Promise<{
+          data: { text: string; words: Array<{ confidence: number }> };
+        }>;
+        terminate: () => Promise<void>;
+      };
+      type CreateWorkerFn = (
+        lang: string,
+        oem?: number,
+        options?: Record<string, unknown>,
+      ) => Promise<TesseractWorker>;
+
+      let createWorker: CreateWorkerFn;
+      try {
+        const mod = (await import("tesseract.js")) as unknown as {
+          createWorker: CreateWorkerFn;
+        };
+        createWorker = mod.createWorker;
+      } catch {
+        // Fallback to CDN if npm package unavailable
+        const mod = (await import(
+          // @ts-expect-error CDN fallback
+          /* @vite-ignore */ "https://cdn.jsdelivr.net/npm/tesseract.js@5/dist/tesseract.esm.min.js"
+        )) as { createWorker: CreateWorkerFn };
+        createWorker = mod.createWorker;
+      }
 
       const worker = await createWorker("eng", 1, {
         logger: (m: { status: string; progress: number }) => {
@@ -897,36 +1022,35 @@ export default function OcrScanModal({
             const pct = Math.round(28 + m.progress * 55);
             setScanProgress(pct);
             setScanStatus(`Recognising text… ${Math.round(m.progress * 100)}%`);
-          } else if (m.status === "loading tesseract core") {
+          } else if (m.status.includes("loading tesseract")) {
             setScanStatus("Loading OCR core…");
-            setScanProgress(12);
-          } else if (m.status === "initializing tesseract") {
-            setScanStatus("Initialising engine…");
-            setScanProgress(15);
-          } else if (m.status === "loading language traineddata") {
-            setScanStatus("Downloading language model…");
             setScanProgress(20);
-          } else if (m.status === "initializing api") {
+          } else if (m.status.includes("language")) {
+            setScanStatus("Loading English language model…");
+            setScanProgress(22);
+          } else if (m.status.includes("initializing")) {
             setScanStatus("Starting OCR API…");
             setScanProgress(25);
           }
         },
       });
 
-      // Tune for printed invoice text
+      // Tuned parameters for printed Indian GST invoice text
       await worker.setParameters({
         tessedit_char_whitelist: "",
         preserve_interword_spaces: "1",
+        // PSM 6 = single uniform block of text — good for invoices
+        tessedit_pageseg_mode: "6",
       });
 
-      setScanStatus("Scanning invoice — please wait…");
+      setScanStatus("Scanning invoice — this may take 20–40 seconds…");
       setScanProgress(27);
 
-      const { data } = await worker.recognize(imageSource);
+      const { data } = await worker.recognize(ocrCanvas);
       await worker.terminate();
 
       setScanProgress(88);
-      setScanStatus("Parsing invoice fields…");
+      setScanStatus("Parsing GST invoice fields…");
 
       const wordConf = data.words.map(
         (w: { confidence: number }) => w.confidence,
@@ -948,7 +1072,7 @@ export default function OcrScanModal({
       fallback.confidence = 10;
       setExtractedData(fallback);
       setScanStatus(
-        "OCR failed — please fill in the fields manually or try a clearer image.",
+        "OCR failed — please fill in the fields manually or try a clearer image (300 DPI+).",
       );
       setTimeout(() => setStep("review"), 2000);
     }

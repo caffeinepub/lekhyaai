@@ -46,11 +46,11 @@ import {
 } from "../utils/companyCategories";
 import { INDIAN_STATES } from "../utils/indianStates";
 import {
-  QWEN_MODELS,
-  callQwenApi,
-  getQwenConfig,
-  saveQwenConfig,
-} from "../utils/qwenAi";
+  LLAMA_MODELS,
+  callLlamaApi,
+  getLlamaConfig,
+  saveLlamaConfig,
+} from "../utils/llamaAi";
 
 export default function SettingsPage() {
   const { actor } = useActor();
@@ -72,40 +72,41 @@ export default function SettingsPage() {
     setSignature,
   } = useTheme();
 
-  // ─── Qwen AI Config ───────────────────────────────────────────────
-  const [qwenCfg, setQwenCfg] = useState(() => getQwenConfig());
+  // ─── Llama AI Config ───────────────────────────────────────────────
+  const [llamaCfg, setLlamaCfg] = useState(() => getLlamaConfig());
   const [showApiKey, setShowApiKey] = useState(false);
   const [testingConn, setTestingConn] = useState(false);
   const [connStatus, setConnStatus] = useState<"idle" | "ok" | "error">("idle");
 
-  function handleSaveQwen() {
-    saveQwenConfig(qwenCfg);
+  function handleSaveLlama() {
+    saveLlamaConfig(llamaCfg);
     toast.success("AI settings saved!");
   }
 
   async function handleTestConnection() {
-    if (!qwenCfg.apiKey) {
-      toast.error("Please enter your API key first.");
+    if (!llamaCfg.apiKey) {
+      toast.error("Please enter your Groq API key first.");
       return;
     }
     setTestingConn(true);
     setConnStatus("idle");
     try {
-      const reply = await callQwenApi(
+      const reply = await callLlamaApi(
         [{ role: "user", content: "Say hello in one word" }],
-        qwenCfg,
+        llamaCfg,
       );
       setConnStatus("ok");
-      toast.success(`Connected! Response: ${reply.slice(0, 60)}`);
+      toast.success(`Connected to Llama AI! Response: ${reply.slice(0, 60)}`);
     } catch (err: unknown) {
       setConnStatus("error");
       const msg = err instanceof Error ? err.message : "Unknown error";
       if (msg === "NO_API_KEY") toast.error("No API key configured.");
-      else if (msg === "INVALID_API_KEY") toast.error("Invalid API key.");
+      else if (msg === "INVALID_API_KEY")
+        toast.error("Invalid Groq API key. Get yours at console.groq.com");
       else if (msg === "CORS_ERROR")
-        toast.error(
-          "CORS error — browser blocked the request. Consider using a proxy.",
-        );
+        toast.error("Network error — check your connection.");
+      else if (msg === "RATE_LIMIT")
+        toast.error("Rate limit reached. Wait a moment and try again.");
       else toast.error(`Connection failed: ${msg}`);
     } finally {
       setTestingConn(false);
@@ -769,7 +770,7 @@ export default function SettingsPage() {
         </motion.div>
       )}
 
-      {/* ─── AI Engine (Qwen) ─── */}
+      {/* ─── AI Engine (Llama via Groq) ─── */}
       <motion.div
         initial={{ opacity: 0, y: 12 }}
         animate={{ opacity: 1, y: 0 }}
@@ -782,26 +783,53 @@ export default function SettingsPage() {
           </div>
           <div>
             <h3 className="font-semibold text-foreground">
-              AI Engine Configuration
+              AI Engine — Meta Llama (via Groq)
             </h3>
             <p className="text-xs text-muted-foreground">
-              Configure Qwen AI to power the AI Accountant Assistant
+              Power the AI Accountant with Meta Llama 3 — free, fast, no credit
+              card needed
             </p>
           </div>
+        </div>
+
+        {/* Groq info banner */}
+        <div className="rounded-lg border border-primary/20 bg-primary/5 p-3 mb-4 text-xs text-muted-foreground">
+          <p className="font-medium text-foreground mb-0.5">
+            How to get a free Groq API key:
+          </p>
+          <ol className="list-decimal list-inside space-y-0.5">
+            <li>
+              Go to{" "}
+              <a
+                href="https://console.groq.com"
+                target="_blank"
+                rel="noopener noreferrer"
+                className="text-primary underline font-medium"
+              >
+                console.groq.com
+              </a>
+            </li>
+            <li>Sign up for free (no credit card)</li>
+            <li>Create an API key and paste it below</li>
+          </ol>
+          <p className="mt-1.5 text-muted-foreground">
+            Free tier: 30 requests/min, 14,400/day — plenty for daily accounting
+            use.
+          </p>
         </div>
 
         <div className="space-y-4">
           {/* API Key */}
           <div className="space-y-1.5">
-            <Label>API Key</Label>
+            <Label>Groq API Key</Label>
             <div className="relative">
               <Input
-                data-ocid="settings.qwen_api_key.input"
+                data-ocid="settings.llama_api_key.input"
                 type={showApiKey ? "text" : "password"}
-                placeholder="sk-xxxxxxxxxxxxxxxxxxxxxxxx"
-                value={qwenCfg.apiKey}
+                placeholder="gsk_xxxxxxxxxxxxxxxxxxxxxxxx"
+                value={llamaCfg.apiKey}
                 onChange={(e) =>
-                  setQwenCfg((p) => ({ ...p, apiKey: e.target.value }))
+                  setLlamaCfg((p) => ({ ...p, apiKey: e.target.value }))
                 }
                 className="pr-10 font-mono text-sm"
               />
@@ -817,37 +845,29 @@ export default function SettingsPage() {
                 )}
               </button>
             </div>
-            <p className="text-xs text-muted-foreground">
-              Get your free API key at{" "}
-              <a
-                href="https://console.aliyun.com/dashscope"
-                target="_blank"
-                rel="noopener noreferrer"
-                className="text-primary underline"
-              >
-                console.aliyun.com/dashscope
-              </a>
-            </p>
           </div>
 
           {/* Model */}
           <div className="space-y-1.5">
-            <Label>Model</Label>
+            <Label>Llama Model</Label>
             <Select
-              value={qwenCfg.model}
-              onValueChange={(v) => setQwenCfg((p) => ({ ...p, model: v }))}
+              value={llamaCfg.model}
+              onValueChange={(v) => setLlamaCfg((p) => ({ ...p, model: v }))}
             >
-              <SelectTrigger data-ocid="settings.qwen_model.select">
+              <SelectTrigger data-ocid="settings.llama_model.select">
                 <SelectValue />
               </SelectTrigger>
               <SelectContent>
-                {QWEN_MODELS.map((m) => (
+                {LLAMA_MODELS.map((m) => (
                   <SelectItem key={m.id} value={m.id}>
                     {m.label}
                   </SelectItem>
                 ))}
               </SelectContent>
             </Select>
+            <p className="text-xs text-muted-foreground">
+              Llama 3 8B is fastest. Llama 3 70B gives best quality responses.
+            </p>
           </div>
 
           {/* Temperature */}
@@ -855,18 +875,18 @@ export default function SettingsPage() {
             <div className="flex items-center justify-between">
               <Label>Temperature</Label>
               <span className="text-xs font-mono text-muted-foreground">
-                {qwenCfg.temperature.toFixed(1)}
+                {llamaCfg.temperature.toFixed(1)}
               </span>
             </div>
             <Slider
               min={0}
               max={1}
               step={0.1}
-              value={[qwenCfg.temperature]}
+              value={[llamaCfg.temperature]}
               onValueChange={([v]) =>
-                setQwenCfg((p) => ({ ...p, temperature: v ?? 0.7 }))
+                setLlamaCfg((p) => ({ ...p, temperature: v ?? 0.7 }))
               }
-              data-ocid="settings.qwen_temperature.input"
+              data-ocid="settings.llama_temperature.input"
             />
             <div className="flex justify-between text-[10px] text-muted-foreground">
               <span>Precise (0.0)</span>
@@ -878,8 +898,8 @@ export default function SettingsPage() {
           <div className="flex gap-3 flex-wrap">
             <Button
               type="button"
-              data-ocid="settings.qwen_save.button"
-              onClick={handleSaveQwen}
+              data-ocid="settings.llama_save.button"
+              onClick={handleSaveLlama}
               className="bg-primary text-primary-foreground hover:bg-primary/90 gap-2"
             >
               <Save className="w-4 h-4" /> Save AI Settings
@@ -887,9 +907,9 @@ export default function SettingsPage() {
             <Button
               type="button"
               variant="outline"
-              data-ocid="settings.qwen_test.button"
+              data-ocid="settings.llama_test.button"
               onClick={handleTestConnection}
-              disabled={testingConn || !qwenCfg.apiKey}
+              disabled={testingConn || !llamaCfg.apiKey}
               className="gap-2"
             >
               {testingConn ? (
@@ -908,13 +928,13 @@ export default function SettingsPage() {
           {connStatus === "ok" && (
             <div className="flex items-center gap-2 p-3 bg-success/10 border border-success/20 rounded-lg text-xs text-success">
               <CheckCircle className="w-4 h-4 flex-shrink-0" />
-              Connected to Qwen AI successfully!
+              Connected to Meta Llama via Groq successfully!
             </div>
           )}
           {connStatus === "error" && (
             <div className="flex items-center gap-2 p-3 bg-destructive/10 border border-destructive/20 rounded-lg text-xs text-destructive">
               <XCircle className="w-4 h-4 flex-shrink-0" />
-              Connection failed. Check your API key and try again.
+              Connection failed. Get your free key at console.groq.com
             </div>
           )}
         </div>

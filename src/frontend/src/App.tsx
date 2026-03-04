@@ -35,6 +35,7 @@ const BalanceSheetPage = lazy(() => import("./pages/BalanceSheetPage"));
 const CompanyCategoriesPage = lazy(
   () => import("./pages/CompanyCategoriesPage"),
 );
+const TallyImportPage = lazy(() => import("./pages/TallyImportPage"));
 
 function PageLoader() {
   return (
@@ -217,6 +218,16 @@ const companyCategoriesRoute = createRoute({
   ),
 });
 
+const tallyImportRoute = createRoute({
+  getParentRoute: () => layoutRoute,
+  path: "/tally-import",
+  component: () => (
+    <Suspense fallback={<PageLoader />}>
+      <TallyImportPage />
+    </Suspense>
+  ),
+});
+
 const routeTree = rootRoute.addChildren([
   layoutRoute.addChildren([
     dashboardRoute,
@@ -236,6 +247,7 @@ const routeTree = rootRoute.addChildren([
     usersRoute,
     plReportRoute,
     balanceSheetRoute,
+    tallyImportRoute,
   ]),
 ]);
 

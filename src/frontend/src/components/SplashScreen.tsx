@@ -44,56 +44,56 @@ export default function SplashScreen({ onDone }: SplashScreenProps) {
             }}
           />
 
-          {/* Corner mandalas — Indian economic design */}
+          {/* Floral Indian mandala corners — 4 corners only */}
           <motion.div
-            initial={{ opacity: 0, scale: 0.7, rotate: -15 }}
-            animate={{ opacity: 1, scale: 1, rotate: 0 }}
-            transition={{ delay: 0.2, duration: 1.0 }}
+            initial={{ opacity: 0, scale: 0.6 }}
+            animate={{ opacity: 1, scale: 1 }}
+            transition={{ delay: 0.15, duration: 1.1 }}
             className="absolute top-0 left-0 pointer-events-none"
-            style={{ transform: "translate(-25%, -25%)" }}
+            style={{ transform: "translate(-30%, -30%)" }}
           >
             <MandalaDecor
-              size={220}
-              opacity={0.18}
+              size={240}
+              opacity={0.22}
               style={{ color: "oklch(0.75 0.15 75)" }}
             />
           </motion.div>
           <motion.div
-            initial={{ opacity: 0, scale: 0.7, rotate: 15 }}
-            animate={{ opacity: 1, scale: 1, rotate: 0 }}
-            transition={{ delay: 0.25, duration: 1.0 }}
+            initial={{ opacity: 0, scale: 0.6 }}
+            animate={{ opacity: 1, scale: 1 }}
+            transition={{ delay: 0.2, duration: 1.1 }}
             className="absolute top-0 right-0 pointer-events-none"
-            style={{ transform: "translate(25%, -25%)" }}
+            style={{ transform: "translate(30%, -30%)" }}
           >
             <MandalaDecor
-              size={200}
-              opacity={0.15}
+              size={220}
+              opacity={0.2}
               style={{ color: "oklch(0.55 0.14 185)" }}
             />
           </motion.div>
           <motion.div
-            initial={{ opacity: 0, scale: 0.7, rotate: 15 }}
-            animate={{ opacity: 1, scale: 1, rotate: 0 }}
-            transition={{ delay: 0.3, duration: 1.0 }}
-            className="absolute bottom-8 left-0 pointer-events-none"
-            style={{ transform: "translate(-30%, 20%)" }}
+            initial={{ opacity: 0, scale: 0.6 }}
+            animate={{ opacity: 1, scale: 1 }}
+            transition={{ delay: 0.25, duration: 1.1 }}
+            className="absolute bottom-0 left-0 pointer-events-none"
+            style={{ transform: "translate(-30%, 30%)" }}
           >
             <MandalaDecor
-              size={180}
-              opacity={0.14}
+              size={210}
+              opacity={0.18}
               style={{ color: "oklch(0.55 0.14 185)" }}
             />
           </motion.div>
           <motion.div
-            initial={{ opacity: 0, scale: 0.7, rotate: -15 }}
-            animate={{ opacity: 1, scale: 1, rotate: 0 }}
-            transition={{ delay: 0.35, duration: 1.0 }}
-            className="absolute bottom-8 right-0 pointer-events-none"
-            style={{ transform: "translate(30%, 20%)" }}
+            initial={{ opacity: 0, scale: 0.6 }}
+            animate={{ opacity: 1, scale: 1 }}
+            transition={{ delay: 0.3, duration: 1.1 }}
+            className="absolute bottom-0 right-0 pointer-events-none"
+            style={{ transform: "translate(30%, 30%)" }}
           >
             <MandalaDecor
-              size={190}
-              opacity={0.16}
+              size={230}
+              opacity={0.2}
               style={{ color: "oklch(0.75 0.15 75)" }}
             />
           </motion.div>
@@ -116,17 +116,6 @@ export default function SplashScreen({ onDone }: SplashScreenProps) {
               transition={{ duration: 0.8, ease: [0.34, 1.56, 0.64, 1] }}
               className="relative"
             >
-              {/* Mandala ring behind logo */}
-              <div
-                className="absolute inset-0 flex items-center justify-center"
-                style={{ transform: "scale(2.6)" }}
-              >
-                <MandalaDecor
-                  size={96}
-                  opacity={0.28}
-                  style={{ color: "oklch(0.75 0.15 75)" }}
-                />
-              </div>
               <img
                 src="/assets/generated/lekhyaai-logo.dim_512x512.png"
                 alt="LekhyaAI Logo"

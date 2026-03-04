@@ -52,6 +52,7 @@ import {
   useUpdateInvoiceStatus,
 } from "../hooks/useQueries";
 import {
+  amountToWordsIN,
   dateStringToNs,
   formatDate,
   formatDateInput,
@@ -608,6 +609,11 @@ function CreateInvoiceModal({
                 {formatINR(total)}
               </span>
             </div>
+            {total > 0n && (
+              <div className="text-xs text-muted-foreground italic border-t border-border/50 pt-1.5">
+                {amountToWordsIN(Number(total) / 100)}
+              </div>
+            )}
           </div>
 
           <div className="flex gap-3">

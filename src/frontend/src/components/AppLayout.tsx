@@ -17,6 +17,7 @@ import {
   CreditCard,
   FileBarChart,
   FileText,
+  Import,
   Landmark,
   LayoutDashboard,
   LogOut,
@@ -59,6 +60,7 @@ const navItems = [
     icon: FileBarChart,
     label: "Balance Sheet",
   },
+  { path: "/tally-import", icon: Import, label: "Tally Import" },
   { path: "/ai-assistant", icon: Bot, label: "AI Assistant" },
   { path: "/users", icon: UserCog, label: "Users & Access" },
   { path: "/subscription", icon: CreditCard, label: "Subscription" },
@@ -87,31 +89,40 @@ export default function AppLayout() {
 
   return (
     <div className="flex h-screen bg-background overflow-hidden">
-      {/* Corner mandala decorations — subtle, theme-aware */}
+      {/* Floral Indian mandala corners — page-level, theme-reactive */}
+      {/* Top-left corner */}
       <MandalaDecor
-        size={140}
-        opacity={0.06}
-        className="fixed top-0 right-0 text-primary pointer-events-none z-0 hidden md:block"
-        style={{ transform: "translate(30%, -30%)" }}
+        size={180}
+        opacity={0.07}
+        className="fixed top-0 left-0 text-primary pointer-events-none z-0"
+        style={{ transform: "translate(-35%, -35%)" }}
       />
+      {/* Top-right corner */}
       <MandalaDecor
-        size={100}
-        opacity={0.05}
-        className="fixed bottom-20 right-0 text-primary pointer-events-none z-0 hidden md:block"
-        style={{ transform: "translate(35%, 0%)" }}
+        size={180}
+        opacity={0.07}
+        className="fixed top-0 right-0 text-primary pointer-events-none z-0"
+        style={{ transform: "translate(35%, -35%)" }}
+      />
+      {/* Bottom-left corner */}
+      <MandalaDecor
+        size={160}
+        opacity={0.06}
+        className="fixed bottom-0 left-0 text-primary pointer-events-none z-0"
+        style={{ transform: "translate(-35%, 35%)" }}
+      />
+      {/* Bottom-right corner */}
+      <MandalaDecor
+        size={160}
+        opacity={0.06}
+        className="fixed bottom-0 right-0 text-primary pointer-events-none z-0"
+        style={{ transform: "translate(35%, 35%)" }}
       />
 
       {/* Desktop Sidebar */}
       <aside className="hidden md:flex w-64 flex-col bg-sidebar shadow-sidebar flex-shrink-0">
         {/* Logo */}
         <div className="relative flex items-center gap-3 px-6 py-5 border-b border-sidebar-border overflow-hidden">
-          {/* Mandala behind logo */}
-          <MandalaDecor
-            size={110}
-            opacity={0.12}
-            className="absolute -left-4 -top-4 text-sidebar-foreground"
-            spin={false}
-          />
           <div className="relative z-10 flex items-center gap-3">
             {logoUrl ? (
               <img
@@ -120,17 +131,10 @@ export default function AppLayout() {
                 className="h-8 w-auto max-w-[32px] object-contain flex-shrink-0 rounded"
               />
             ) : (
-              <div className="relative w-9 h-9 flex-shrink-0">
-                <MandalaDecor
-                  size={36}
-                  opacity={0.25}
-                  className="absolute inset-0 text-sidebar-foreground"
-                />
-                <div className="w-9 h-9 rounded-xl bg-primary flex items-center justify-center relative z-10">
-                  <span className="text-primary-foreground font-display text-base font-bold">
-                    L
-                  </span>
-                </div>
+              <div className="w-9 h-9 rounded-xl bg-primary flex items-center justify-center flex-shrink-0">
+                <span className="text-primary-foreground font-display text-base font-bold">
+                  L
+                </span>
               </div>
             )}
             <div>
@@ -232,15 +236,8 @@ export default function AppLayout() {
       {/* Main content area */}
       <div className="flex-1 flex flex-col min-w-0 overflow-hidden">
         {/* Mobile header */}
-        <header className="md:hidden relative flex items-center gap-3 px-4 py-3 bg-card border-b border-border overflow-hidden">
-          {/* Subtle mandala behind mobile header logo */}
-          <MandalaDecor
-            size={70}
-            opacity={0.07}
-            className="absolute left-0 top-1/2 text-primary"
-            style={{ transform: "translateY(-50%) translateX(-20%)" }}
-          />
-          <div className="relative z-10 flex items-center gap-2 flex-1 min-w-0">
+        <header className="md:hidden flex items-center gap-3 px-4 py-3 bg-card border-b border-border">
+          <div className="flex items-center gap-2 flex-1 min-w-0">
             {logoUrl ? (
               <img
                 src={logoUrl}

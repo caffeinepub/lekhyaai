@@ -37,6 +37,7 @@ import {
 import { motion } from "motion/react";
 import { useCallback, useRef, useState } from "react";
 import type { Customer } from "../backend.d";
+import { amountToWordsIN } from "../utils/formatINR";
 import { GST_RATES } from "../utils/indianStates";
 
 export interface OcrExtractedData {
@@ -407,103 +408,183 @@ function parseInvoiceText(
     : "";
 
   // ── Line items ───────────────────────────────────────────────────
-  // Find the table section between headers and totals
+  // Step 1: Find table region between header and totals
   const items: OcrExtractedData["items"] = [];
-  const tableStartIdx = fullText.search(
-    /(?:Sl\.?\s*No|S\.?\s*No|Sr\.?\s*No|Description\s+of\s+Goods|Description|Item|Product|HSN)/i,
-  );
-  const tableEndIdx = fullText.search(
-    /(?:Taxable\s*Value|Total\s*Taxable|CGST|SGST|IGST|Grand\s*Total|Sub\s*Total|Subtotal|Round\s*Off|E\s*\&\s*O\.?\s*E)/i,
-  );
-  const tableSection =
-    tableStartIdx >= 0 && tableEndIdx > tableStartIdx
-      ? fullText.slice(tableStartIdx, tableEndIdx)
-      : fullText;
 
-  // Pattern 1: Full row with Sr.No, description, HSN, qty, unit, rate, amount
-  // Handles: "1 FANCY PARTY WEAR DUPATTA 62141090 192.00 Pcs 517.00 30 % 5 99,264.00"
-  const itemFullRegex =
-    /^(\d+)\s+(.{3,60}?)\s+(\d{4,10})\s+([\d,]+(?:\.\d+)?)\s*(Pcs?|KG|MTR|NOS?|EA|BOX|PKT|SET|PRS|LTR|GMS?|Unit|Nos?)\s+([\d,]+(?:\.\d+)?)\s*(?:([\d.]+)\s*%?)?\s*([\d.]+)\s+([\d,]+(?:\.\d+)?)/gim;
-  let itemMatch: RegExpExecArray | null;
-  // biome-ignore lint/suspicious/noAssignInExpressions: regex exec loop
-  while ((itemMatch = itemFullRegex.exec(tableSection)) !== null) {
-    const rawRate = cleanNum(itemMatch[6]);
-    const rawAmt = cleanNum(itemMatch[9]);
-    items.push({
-      srNo: itemMatch[1],
-      productName: itemMatch[2].trim(),
-      hsnSac: itemMatch[3],
-      qty: cleanNum(itemMatch[4]),
-      unit: itemMatch[5] || "Pcs",
-      rateInclTax: "",
-      rate: rawRate,
-      discountPct: itemMatch[7] ?? "0",
-      gstRate: cleanNum(itemMatch[8]),
-      amount: rawAmt,
-    });
-  }
+  // Find table start: line containing header keywords
+  let tableStartLine = -1;
+  let tableEndLine = lines.length;
 
-  // Pattern 2: Row without unit column (simpler format)
-  if (items.length === 0) {
-    const itemSimpleRegex =
-      /^(\d+)\s+(.{3,60}?)\s+(\d{4,10})\s+([\d,]+(?:\.\d+)?)\s+([\d,]+(?:\.\d+)?)\s+([\d,]+(?:\.\d+)?)/gim;
-    // biome-ignore lint/suspicious/noAssignInExpressions: regex exec loop
-    while ((itemMatch = itemSimpleRegex.exec(tableSection)) !== null) {
-      const line = itemMatch[0];
-      if (/total|gst|cgst|sgst|igst|tax|disc|amount|qty/i.test(line)) continue;
-      items.push({
-        srNo: itemMatch[1],
-        productName: itemMatch[2].trim(),
-        hsnSac: itemMatch[3],
-        qty: cleanNum(itemMatch[4]),
-        unit: "Pcs",
-        rateInclTax: "",
-        rate: cleanNum(itemMatch[5]),
-        discountPct: "0",
-        gstRate: "5",
-        amount: cleanNum(itemMatch[6]),
-      });
+  for (let i = 0; i < lines.length; i++) {
+    const l = lines[i].toLowerCase();
+    if (
+      tableStartLine === -1 &&
+      /\b(description|item|product|particulars)\b/.test(l) &&
+      /\b(hsn|sac|qty|quantity|rate|amount)\b/.test(l)
+    ) {
+      tableStartLine = i + 1; // start scanning from line after header
+    }
+    if (
+      tableStartLine !== -1 &&
+      i > tableStartLine &&
+      /\b(taxable\s*value|total\s*taxable|cgst|sgst|igst|grand\s*total|sub\s*total|subtotal|round\s*off|e\s*&\s*o|authoris|declaration|bank\s*name|amount\s*chargeable)\b/.test(
+        l,
+      )
+    ) {
+      tableEndLine = i;
+      break;
     }
   }
 
-  // Pattern 3: Line-by-line scan for HSN codes as anchor
-  if (items.length === 0) {
-    for (const line of tableSection.split("\n")) {
-      const hsnMatch = line.match(/\b(\d{6,8})\b/);
-      if (!hsnMatch) continue;
-      const hsnCode = hsnMatch[1];
-      // Extract numbers from the line
-      const nums = [...line.matchAll(/([\d,]+\.\d{2})/g)].map((m) =>
-        cleanNum(m[1]),
-      );
-      const name = line
-        .substring(0, line.indexOf(hsnCode))
+  // If no header found, try to scan entire document for item rows
+  if (tableStartLine === -1) {
+    tableStartLine = 0;
+  }
+
+  const tableLines = lines.slice(tableStartLine, tableEndLine);
+
+  // Step 2: Per-line item extraction
+  // Strategy: a valid item line has: a number (qty or sr.no), product text, optionally HSN
+  // We look for lines with at least one number that looks like a quantity or price
+
+  for (const line of tableLines) {
+    // Skip obvious non-item lines
+    if (/^\s*$/.test(line)) continue;
+    if (
+      /\b(total|subtotal|cgst|sgst|igst|taxable|round|discount\s*total|tax\s*amount|grand)\b/i.test(
+        line,
+      )
+    )
+      continue;
+    if (
+      /\b(serial|sl\.?\s*no|s\.?\s*no|sr\.?\s*no|description|hsn\s*\/\s*sac|qty|unit|rate|amount)\b/i.test(
+        line,
+      ) &&
+      line.length < 80
+    )
+      continue;
+
+    // Try full pattern: Sr No, Name, HSN, Qty, Unit, Rate, Disc%, GST%, Amount
+    const fullMatch = line.match(
+      /^(\d+)\s+(.{3,60}?)\s+(\d{4,8})\s+([\d,]+(?:\.\d+)?)\s*(Pcs?|KG|MTR|NOS?|EA|BOX|PKT|SET|PRS|LTR|GMS?|Unit|Nos?|Mtr?s?|Kgs?)\s+([\d,]+(?:\.\d+)?)\s*(?:([\d.]+)\s*%?)?\s*([\d.]+)\s+([\d,]+(?:\.\d+)?)/i,
+    );
+    if (fullMatch) {
+      items.push({
+        srNo: fullMatch[1],
+        productName: fullMatch[2].trim(),
+        hsnSac: fullMatch[3],
+        qty: cleanNum(fullMatch[4]),
+        unit: fullMatch[5] || "Pcs",
+        rateInclTax: "",
+        rate: cleanNum(fullMatch[6]),
+        discountPct: fullMatch[7] ?? "0",
+        gstRate: cleanNum(fullMatch[8]),
+        amount: cleanNum(fullMatch[9]),
+      });
+      continue;
+    }
+
+    // Try pattern without unit: Sr No, Name, HSN, Qty, Rate, GST%, Amount
+    const noUnitMatch = line.match(
+      /^(\d+)\s+(.{3,60}?)\s+(\d{4,8})\s+([\d,]+(?:\.\d+)?)\s+([\d,]+(?:\.\d+)?)\s+([\d.]+)\s+([\d,]+(?:\.\d+)?)/i,
+    );
+    if (noUnitMatch) {
+      items.push({
+        srNo: noUnitMatch[1],
+        productName: noUnitMatch[2].trim(),
+        hsnSac: noUnitMatch[3],
+        qty: cleanNum(noUnitMatch[4]),
+        unit: "Pcs",
+        rateInclTax: "",
+        rate: cleanNum(noUnitMatch[5]),
+        discountPct: "0",
+        gstRate: cleanNum(noUnitMatch[6]),
+        amount: cleanNum(noUnitMatch[7]),
+      });
+      continue;
+    }
+
+    // Try HSN anchor: any line with a 6-8 digit HSN-like number
+    const hsnAnchor = line.match(/\b(\d{6,8})\b/);
+    if (hsnAnchor) {
+      const hsnCode = hsnAnchor[1];
+      const hsnPos = line.indexOf(hsnCode);
+      // Product name is the text before the HSN, stripped of leading number
+      const namePart = line
+        .substring(0, hsnPos)
         .replace(/^\d+\s*/, "")
         .trim();
-      if (name.length < 3) continue;
+      if (namePart.length < 2) continue;
+      // Extract all decimal numbers from rest of line
+      const restNums = [
+        ...line.substring(hsnPos).matchAll(/([\d,]+(?:\.\d{1,2})?)/g),
+      ]
+        .map((m) => cleanNum(m[1]))
+        .filter((n) => Number.parseFloat(n) > 0);
+      // Try to detect qty (small number), rate (larger), amount (largest or last)
+      const numVals = restNums.map((n) => Number.parseFloat(n));
+      const qty =
+        numVals.length > 0 ? (numVals.find((v) => v < 10000) ?? 1) : 1;
+      const amount = numVals.length > 0 ? Math.max(...numVals) : 0;
+      const rate =
+        numVals.length > 1
+          ? (numVals.find((v) => v !== qty && v !== amount) ?? amount)
+          : amount;
+
       items.push({
         srNo: String(items.length + 1),
-        productName: name,
+        productName: namePart,
         hsnSac: hsnCode,
+        qty: String(qty),
+        unit: "Pcs",
+        rateInclTax: "",
+        rate: String(rate),
+        discountPct: "0",
+        gstRate: "5",
+        amount: String(amount),
+      });
+      continue;
+    }
+
+    // Last resort: numbered item line with at least product name + numbers
+    const numberedLine = line.match(
+      /^(\d+)\s+([A-Z][A-Za-z\s\/\-&,'.]{4,60}?)\s+([\d,]+(?:\.\d+)?)\s+([\d,]+(?:\.\d+)?)$/i,
+    );
+    if (numberedLine) {
+      items.push({
+        srNo: numberedLine[1],
+        productName: numberedLine[2].trim(),
+        hsnSac: "",
         qty: "1",
         unit: "Pcs",
         rateInclTax: "",
-        rate: nums[nums.length - 2] ?? nums[0] ?? "0",
+        rate: cleanNum(numberedLine[3]),
         discountPct: "0",
         gstRate: "5",
-        amount: nums[nums.length - 1] ?? nums[0] ?? "0",
+        amount: cleanNum(numberedLine[4]),
       });
     }
   }
 
+  // Step 3: Deduplicate items by productName+hsnSac
+  const seenItems = new Set<string>();
+  const deduped: OcrExtractedData["items"] = [];
+  for (const item of items) {
+    const key = `${item.productName.toLowerCase().trim()}|${item.hsnSac}`;
+    if (!seenItems.has(key)) {
+      seenItems.add(key);
+      deduped.push(item);
+    }
+  }
+  const finalItems = deduped;
+
   // Fallback: one item with best-guess amount
-  if (items.length === 0) {
-    // Try to find the largest number in the invoice as the total
+  if (finalItems.length === 0) {
     const allNums = [...fullText.matchAll(/([\d,]+\.\d{2})/g)].map((m) =>
       Number.parseFloat(cleanNum(m[1])),
     );
     const maxAmt = allNums.length > 0 ? Math.max(...allNums) : 0;
-    items.push({
+    finalItems.push({
       srNo: "1",
       productName: "Item from scanned invoice",
       hsnSac: "",
@@ -529,8 +610,9 @@ function parseInvoiceText(
     igstRate !== "0"
       ? String(Number.parseFloat(igstRate))
       : String(Number.parseFloat(cgstRate) + Number.parseFloat(sgstRate));
-  for (const item of items) {
-    if (item.gstRate === "5") item.gstRate = detectedGstRate;
+  for (const item of finalItems) {
+    if (item.gstRate === "5" || item.gstRate === "0")
+      item.gstRate = detectedGstRate;
   }
 
   // ── Tax amounts ──────────────────────────────────────────────────
@@ -633,7 +715,7 @@ function parseInvoiceText(
     dispatchedThrough: dispatchedThroughMatch?.[1]?.trim() ?? "",
     destination: destinationMatch?.[1]?.trim() ?? "",
     termsOfDelivery: termsOfDeliveryMatch?.[1]?.trim() ?? "",
-    items: items.slice(0, 15),
+    items: finalItems,
     taxableValue: taxableMatch?.[1] ? cleanNum(taxableMatch[1]) : "",
     cgstRate,
     cgstAmount: cgstAmtMatch?.[1] ? cleanNum(cgstAmtMatch[1]) : "",
@@ -651,6 +733,83 @@ function parseInvoiceText(
     bankBranch: bankBranchMatch?.[1]?.trim() ?? "",
     declaration: declarationMatch?.[1]?.trim().replace(/\s+/g, " ") ?? "",
     confidence,
+  };
+}
+
+// ─── Post-Processing: Normalise and clean up extracted data ────────
+
+const VALID_GST_RATES = [0, 0.25, 1, 1.5, 3, 5, 7.5, 12, 18, 28];
+
+function nearestGstRate(val: number): string {
+  if (val <= 0) return "0";
+  return String(
+    VALID_GST_RATES.reduce((prev, curr) =>
+      Math.abs(curr - val) < Math.abs(prev - val) ? curr : prev,
+    ),
+  );
+}
+
+function normaliseOcrData(data: OcrExtractedData): OcrExtractedData {
+  // 1. Normalise GST rates on all items to nearest valid rate
+  const items = data.items.map((it) => {
+    const rateNum = Number.parseFloat(it.gstRate) || 0;
+    return { ...it, gstRate: nearestGstRate(rateNum) };
+  });
+
+  // 2. Validate GSTIN format (15 alphanumeric chars)
+  const gstinPattern = /^[0-9]{2}[A-Z]{5}[0-9]{4}[A-Z][1-9A-Z]Z[0-9A-Z]$/;
+  const sellerGstin = gstinPattern.test(data.sellerGstin)
+    ? data.sellerGstin
+    : data.sellerGstin
+        .replace(/[^A-Z0-9]/gi, "")
+        .toUpperCase()
+        .slice(0, 15);
+  const customerGstin = gstinPattern.test(data.customerGstin)
+    ? data.customerGstin
+    : data.customerGstin
+        .replace(/[^A-Z0-9]/gi, "")
+        .toUpperCase()
+        .slice(0, 15);
+
+  // 3. Cross-check: if items have amounts, recalculate total
+  let recalcTotal = "";
+  if (items.length > 0 && items[0].amount !== "0" && items[0].amount !== "") {
+    const sumBase = items.reduce((s, it) => {
+      const q = Number.parseFloat(it.qty) || 1;
+      const r = Number.parseFloat(it.rate) || Number.parseFloat(it.amount) || 0;
+      const disc = Number.parseFloat(it.discountPct) || 0;
+      return s + q * r * (1 - disc / 100);
+    }, 0);
+    const avgGst =
+      items.reduce((s, it) => s + (Number.parseFloat(it.gstRate) || 0), 0) /
+      items.length;
+    if (sumBase > 0) {
+      recalcTotal = (sumBase * (1 + avgGst / 100)).toFixed(2);
+    }
+  }
+
+  // 4. Use recalculated total only if parsed total looks wrong (0 or empty)
+  const parsedTotal = Number.parseFloat(data.totalAmount) || 0;
+  const recalcNum = Number.parseFloat(recalcTotal) || 0;
+  const finalTotal =
+    parsedTotal > 0
+      ? data.totalAmount
+      : recalcNum > 0
+        ? recalcTotal
+        : data.totalAmount;
+
+  // 5. Clean phone number (Indian mobile: 10 digits starting 6-9)
+  const phoneClean = data.customerPhone.replace(/[^0-9]/g, "");
+  const customerPhone =
+    phoneClean.length >= 10 ? phoneClean.slice(-10) : data.customerPhone;
+
+  return {
+    ...data,
+    sellerGstin,
+    customerGstin,
+    customerPhone,
+    totalAmount: finalTotal,
+    items,
   };
 }
 
@@ -1055,7 +1214,7 @@ export default function OcrScanModal({
       const wordConf = data.words.map(
         (w: { confidence: number }) => w.confidence,
       );
-      const parsed = parseInvoiceText(data.text, wordConf);
+      const parsed = normaliseOcrData(parseInvoiceText(data.text, wordConf));
 
       setScanProgress(100);
       const wordCount = data.words.length;
@@ -1214,8 +1373,8 @@ export default function OcrScanModal({
           <DialogTitle className="font-display text-xl flex items-center gap-2">
             <ScanLine className="w-5 h-5 text-primary" />
             Scan Tax Invoice
-            <span className="ml-auto text-xs font-normal text-muted-foreground bg-muted px-2 py-0.5 rounded-full">
-              Tesseract OCR
+            <span className="ml-auto text-xs font-normal text-muted-foreground bg-primary/10 text-primary px-2 py-0.5 rounded-full">
+              AI-Powered OCR
             </span>
           </DialogTitle>
         </DialogHeader>
@@ -1989,23 +2148,49 @@ export default function OcrScanModal({
                     </div>
                     <div className="col-span-2 space-y-1.5">
                       <Label className="text-xs">Amount in Words</Label>
+                      {/* Auto-computed display */}
+                      {extractedData.totalAmount &&
+                        !Number.isNaN(
+                          Number.parseFloat(extractedData.totalAmount),
+                        ) && (
+                          <div className="px-3 py-2 rounded-md bg-muted/50 border border-border text-xs text-muted-foreground font-medium">
+                            {amountToWordsIN(
+                              Number.parseFloat(extractedData.totalAmount),
+                            )}
+                          </div>
+                        )}
                       <Input
                         value={extractedData.amountInWords}
                         onChange={(e) =>
                           updateData("amountInWords", e.target.value)
                         }
-                        placeholder="INR One Lakh Four Thousand One Hundred Sixty Only"
+                        placeholder="Auto-computed above — type here to override"
                         className="h-9 text-sm"
                       />
                     </div>
                     <div className="col-span-2 space-y-1.5">
                       <Label className="text-xs">Tax Amount in Words</Label>
+                      {/* Auto-computed display */}
+                      {(() => {
+                        const taxTotal =
+                          (Number.parseFloat(extractedData.cgstAmount || "0") ||
+                            0) +
+                          (Number.parseFloat(extractedData.sgstAmount || "0") ||
+                            0) +
+                          (Number.parseFloat(extractedData.igstAmount || "0") ||
+                            0);
+                        return taxTotal > 0 ? (
+                          <div className="px-3 py-2 rounded-md bg-muted/50 border border-border text-xs text-muted-foreground font-medium">
+                            {amountToWordsIN(taxTotal)}
+                          </div>
+                        ) : null;
+                      })()}
                       <Input
                         value={extractedData.taxAmountInWords}
                         onChange={(e) =>
                           updateData("taxAmountInWords", e.target.value)
                         }
-                        placeholder="INR Four Thousand Nine Hundred Sixty Only"
+                        placeholder="Auto-computed above — type here to override"
                         className="h-9 text-sm"
                       />
                     </div>

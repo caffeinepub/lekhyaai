@@ -1,49 +1,39 @@
 # LekhyaAI
 
 ## Current State
-- Full-stack Motoko + React accounting app for Indian SMEs
-- Modules: Dashboard, Invoices, Customers, Vendors, Products, Expenses, GST Reports, Ledger, Bank Accounts, Petty Cash, Users/RBAC, P&L Report, Balance Sheet, Settings, Subscription
-- AI Assistant page exists but is rule-based only (no real AI, no chat history storage, no per-user personalization)
-- No company category database
-- No GST rate auto-assignment by company type/product category
-- No cash flow prediction
-- No floating AI widget on all pages
-- Settings has API key section but no Qwen AI wiring
+- OcrScanModal.tsx handles OCR scanning with Tesseract.js
+- Item parsing uses 3 regex patterns + fallback; multi-product invoices are often dropped or merged into 1 row
+- "Amount in Words" and "Tax Amount in Words" are static text inputs — user must type them manually
+- `three`, `@react-three/fiber`, `@react-three/cannon`, `@react-three/drei`, `@types/three`, `react-quill-new` are still in package.json causing unnecessary bundle weight
 
 ## Requested Changes (Diff)
 
 ### Add
-- **AI Chat History in Backend**: Store per-user, per-business chat messages (role, content, timestamp) in Motoko backend so conversations persist across sessions and devices
-- **Qwen AI Integration (frontend)**: Call Alibaba DashScope API (qwen-turbo / qwen-plus) from the frontend using the user's configured API key stored in Settings; send full conversation history for context
-- **Floating AI Assistant Widget**: A collapsible chat bubble fixed to bottom-right on every page so users never leave their workflow to ask a question
-- **Company Categories Master List**: Backend storage + frontend admin UI for company categories (Manufacturing, Trading, Services, E-Commerce, Healthcare, Education, Pharma, Construction, Textile, Retail, Restaurant/Food, IT/Software, Transport/Logistics, Agriculture, Real Estate, Finance/NBFC, Export/Import, NGO/Trust, Professional Services, Hospitality) with associated default GST slab and HSN range hints
-- **Products/Services per Category**: Each company category has a default list of common products/services with pre-filled HSN code and GST rate; these seed the product catalog when a business sets its category
-- **GST Rate Auto-Assignment**: When creating/editing a product, if the company has a category set, suggest the GST rate automatically based on category + product type; user can override manually
-- **Cash Flow Prediction**: Dashboard panel showing 3-month cash flow forecast using linear regression on historical invoice + expense data, with "market context" advisory notes
-- **Bug Auto-Fix AI Suggestion**: In the AI chat, when the user describes a problem (e.g. "my GST is wrong", "invoice total is off"), the assistant can generate a step-by-step fix checklist based on the business's current data
-- **Qwen API Key Settings**: Settings > AI section now has Qwen API key, model selector (qwen-turbo, qwen-plus, qwen-max), temperature, and a "Test Connection" button
+- `amountToWordsIN(n: number): string` utility function in `formatINR.ts` — converts any number to Indian number-system words (crore, lakh, thousand, hundred) with "Only" suffix. Example: 104160 → "One Lakh Four Thousand One Hundred Sixty Rupees Only"
+- `taxAmountToWordsIN` convenience wrapper (just calls amountToWordsIN with GST total)
+- Auto-compute "Amount in Words" field in OcrScanModal when totalAmount changes
+- Auto-compute "Tax Amount in Words" when cgstAmount/sgstAmount/igstAmount change
+- Show computed words as read-only display below the editable total field (still allow manual override)
+- Same auto-words in the CreateInvoiceModal "Totals" section — display below the grand total line
 
 ### Modify
-- **Backend main.mo**: Add `AiChatMessage` type and storage; add `saveChatMessage`, `getChatHistory`, `clearChatHistory` functions; add `CompanyCategory` type and storage with CRUD; add `CategoryProduct` type and storage; add `setBusinessCategory` and `getBusinessCategory` functions
-- **AiAssistantPage**: Full redesign as a proper chat interface with conversation history loaded from backend, Qwen AI calls, GST expert persona, and a "Clear History" button
-- **AppLayout**: Add floating AI chat bubble (bottom-right) that expands to a mini-chat panel, present on all authenticated pages
-- **SettingsPage**: Expand AI & Integrations section with Qwen API key, model, temperature, test connection; add Company Category selection for the active business
-- **DashboardPage**: Add cash flow forecast chart panel (3-month projection)
-- **ProductsPage**: When creating/editing a product, auto-suggest GST rate based on business category
-- **package.json** (frontend): Remove unused `three`, `@react-three/*`, `@types/three`, `react-quill-new`; keep `recharts` (already present)
+- **OCR line item parsing** — complete rewrite of `parseInvoiceText` item parsing logic:
+  - Use a wider table-region scan: detect header row by looking for keywords (Description, HSN, Qty, Rate, Amount) and scan all lines below it until a totals keyword
+  - For each line in the table region: try to extract Sr.No, product name, HSN (4-8 digits), qty, unit, rate, discount, GST rate, amount using a more lenient regex that allows varied column ordering
+  - Parse items one-by-one per line (not as a single global regex with offset issues)
+  - If a line has an HSN code but no rate/amount visible, still create an item row so no product is silently dropped
+  - After parsing, deduplicate items by (productName + hsnSac) to avoid double-entries
+  - Remove the 15-item cap (`items.slice(0, 15)`) — capture all items
+  - Do NOT reset gstRate to detectedGstRate if the individual item already has a non-default rate extracted
+- **Package cleanup** — remove from `package.json` dependencies: `three`, `@react-three/fiber`, `@react-three/cannon`, `@react-three/drei`, `react-quill-new`; remove from devDependencies: `@types/three`
 
 ### Remove
-- Unused Three.js and react-quill-new references from package.json (already partially done but still present)
+- Nothing additional
 
 ## Implementation Plan
-1. Update `main.mo` to add: AiChatMessage type + Map storage, chat CRUD functions, CompanyCategory type + Map, CategoryProduct type + Map, business category association
-2. Generate backend (Motoko + bindings)
-3. Remove dead packages from frontend package.json
-4. Build `CompanyCategoriesPage` with pre-seeded categories and their default product lists
-5. Build floating `AiChatWidget` component wired to Qwen API + backend chat history
-6. Update `AiAssistantPage` to use full chat history from backend and Qwen AI
-7. Update `SettingsPage` with Qwen config (key, model, temperature, test)
-8. Update `DashboardPage` with cash flow forecast panel
-9. Update `ProductsPage` to auto-suggest GST rate from company category
-10. Add route for `/company-categories` in App.tsx
-11. Wire floating widget into AppLayout
+1. Add `amountToWordsIN(n: number): string` to `src/frontend/src/utils/formatINR.ts`
+2. In `OcrScanModal.tsx` Totals tab: auto-populate amountInWords and taxAmountInWords when the total/tax values change (computed display + manual override allowed)
+3. In `OcrScanModal.tsx` `parseInvoiceText`: rewrite item parsing to a line-by-line approach that correctly captures all products
+4. In `InvoicesPage.tsx` CreateInvoiceModal: show auto-computed Indian number words below the grand total
+5. Clean `package.json` — remove unused 3D + quill packages
+6. Typecheck and lint

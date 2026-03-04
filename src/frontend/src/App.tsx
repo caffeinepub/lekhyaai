@@ -32,6 +32,9 @@ const PettyCashPage = lazy(() => import("./pages/PettyCashPage"));
 const UsersPage = lazy(() => import("./pages/UsersPage"));
 const PLReportPage = lazy(() => import("./pages/PLReportPage"));
 const BalanceSheetPage = lazy(() => import("./pages/BalanceSheetPage"));
+const CompanyCategoriesPage = lazy(
+  () => import("./pages/CompanyCategoriesPage"),
+);
 
 function PageLoader() {
   return (
@@ -204,6 +207,16 @@ const balanceSheetRoute = createRoute({
   ),
 });
 
+const companyCategoriesRoute = createRoute({
+  getParentRoute: () => layoutRoute,
+  path: "/company-categories",
+  component: () => (
+    <Suspense fallback={<PageLoader />}>
+      <CompanyCategoriesPage />
+    </Suspense>
+  ),
+});
+
 const routeTree = rootRoute.addChildren([
   layoutRoute.addChildren([
     dashboardRoute,
@@ -211,6 +224,7 @@ const routeTree = rootRoute.addChildren([
     customersRoute,
     vendorsRoute,
     productsRoute,
+    companyCategoriesRoute,
     expensesRoute,
     gstReportsRoute,
     ledgerRoute,

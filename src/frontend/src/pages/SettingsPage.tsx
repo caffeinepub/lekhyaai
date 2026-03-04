@@ -8,21 +8,28 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
+import { Slider } from "@/components/ui/slider";
 import { Switch } from "@/components/ui/switch";
 import { Textarea } from "@/components/ui/textarea";
 import { cn } from "@/lib/utils";
 import { useQueryClient } from "@tanstack/react-query";
 import {
+  Bot,
   Building2,
   Check,
+  CheckCircle,
+  Eye,
+  EyeOff,
   ImageIcon,
   Loader2,
   Palette,
   Plus,
   Save,
+  Tag,
   Trash2,
   Upload,
   X,
+  XCircle,
 } from "lucide-react";
 import { motion } from "motion/react";
 import { useEffect, useRef, useState } from "react";
@@ -32,7 +39,18 @@ import DeleteConfirmDialog from "../components/DeleteConfirmDialog";
 import { useBusiness } from "../context/BusinessContext";
 import { THEMES, useTheme } from "../context/ThemeContext";
 import { useActor } from "../hooks/useActor";
+import {
+  COMPANY_CATEGORIES,
+  getBusinessCategory,
+  saveBusinessCategory,
+} from "../utils/companyCategories";
 import { INDIAN_STATES } from "../utils/indianStates";
+import {
+  QWEN_MODELS,
+  callQwenApi,
+  getQwenConfig,
+  saveQwenConfig,
+} from "../utils/qwenAi";
 
 export default function SettingsPage() {
   const { actor } = useActor();
@@ -53,6 +71,59 @@ export default function SettingsPage() {
     setLogo,
     setSignature,
   } = useTheme();
+
+  // ─── Qwen AI Config ───────────────────────────────────────────────
+  const [qwenCfg, setQwenCfg] = useState(() => getQwenConfig());
+  const [showApiKey, setShowApiKey] = useState(false);
+  const [testingConn, setTestingConn] = useState(false);
+  const [connStatus, setConnStatus] = useState<"idle" | "ok" | "error">("idle");
+
+  function handleSaveQwen() {
+    saveQwenConfig(qwenCfg);
+    toast.success("AI settings saved!");
+  }
+
+  async function handleTestConnection() {
+    if (!qwenCfg.apiKey) {
+      toast.error("Please enter your API key first.");
+      return;
+    }
+    setTestingConn(true);
+    setConnStatus("idle");
+    try {
+      const reply = await callQwenApi(
+        [{ role: "user", content: "Say hello in one word" }],
+        qwenCfg,
+      );
+      setConnStatus("ok");
+      toast.success(`Connected! Response: ${reply.slice(0, 60)}`);
+    } catch (err: unknown) {
+      setConnStatus("error");
+      const msg = err instanceof Error ? err.message : "Unknown error";
+      if (msg === "NO_API_KEY") toast.error("No API key configured.");
+      else if (msg === "INVALID_API_KEY") toast.error("Invalid API key.");
+      else if (msg === "CORS_ERROR")
+        toast.error(
+          "CORS error — browser blocked the request. Consider using a proxy.",
+        );
+      else toast.error(`Connection failed: ${msg}`);
+    } finally {
+      setTestingConn(false);
+    }
+  }
+
+  // ─── Business Category ────────────────────────────────────────────
+  const bizIdStr = activeBusiness?.id.toString() ?? "";
+  const [bizCategory, setBizCategory] = useState(() =>
+    bizIdStr ? getBusinessCategory(bizIdStr) : "",
+  );
+
+  // Sync when business changes
+  useEffect(() => {
+    if (bizIdStr) {
+      setBizCategory(getBusinessCategory(bizIdStr));
+    }
+  }, [bizIdStr]);
 
   const logoInputRef = useRef<HTMLInputElement>(null);
   const signatureInputRef = useRef<HTMLInputElement>(null);
@@ -633,6 +704,219 @@ export default function SettingsPage() {
               </div>
             </div>
           </div>
+        </div>
+      </motion.div>
+
+      {/* ─── Business Category ─── */}
+      {activeBusiness && (
+        <motion.div
+          initial={{ opacity: 0, y: 12 }}
+          animate={{ opacity: 1, y: 0 }}
+          transition={{ delay: 0.35 }}
+          className="bg-card rounded-xl shadow-card border border-border p-6 mb-6"
+        >
+          <div className="flex items-center gap-3 mb-5">
+            <div className="w-10 h-10 rounded-xl bg-primary/10 flex items-center justify-center">
+              <Tag className="w-5 h-5 text-primary" />
+            </div>
+            <div>
+              <h3 className="font-semibold text-foreground">
+                Business Category
+              </h3>
+              <p className="text-xs text-muted-foreground">
+                Helps auto-suggest GST rates for your products
+              </p>
+            </div>
+          </div>
+
+          <div className="space-y-3">
+            <Label>Company Category</Label>
+            <Select
+              value={bizCategory}
+              onValueChange={(val) => {
+                setBizCategory(val);
+                if (bizIdStr) {
+                  saveBusinessCategory(bizIdStr, val);
+                  toast.success(
+                    "Category updated. Products page will now suggest GST rates for your category.",
+                  );
+                }
+              }}
+            >
+              <SelectTrigger data-ocid="settings.biz_category.select">
+                <SelectValue placeholder="Select your business category" />
+              </SelectTrigger>
+              <SelectContent>
+                {COMPANY_CATEGORIES.map((cat) => (
+                  <SelectItem key={cat.id} value={cat.name}>
+                    {cat.name}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+            {bizCategory && (
+              <p className="text-xs text-muted-foreground">
+                Default GST slab for{" "}
+                <span className="font-medium text-primary">{bizCategory}</span>:{" "}
+                {
+                  COMPANY_CATEGORIES.find((c) => c.name === bizCategory)
+                    ?.defaultGstSlab
+                }
+                %
+              </p>
+            )}
+          </div>
+        </motion.div>
+      )}
+
+      {/* ─── AI Engine (Qwen) ─── */}
+      <motion.div
+        initial={{ opacity: 0, y: 12 }}
+        animate={{ opacity: 1, y: 0 }}
+        transition={{ delay: 0.4 }}
+        className="bg-card rounded-xl shadow-card border border-border p-6 mb-6"
+      >
+        <div className="flex items-center gap-3 mb-5">
+          <div className="w-10 h-10 rounded-xl bg-primary/10 flex items-center justify-center">
+            <Bot className="w-5 h-5 text-primary" />
+          </div>
+          <div>
+            <h3 className="font-semibold text-foreground">
+              AI Engine Configuration
+            </h3>
+            <p className="text-xs text-muted-foreground">
+              Configure Qwen AI to power the AI Accountant Assistant
+            </p>
+          </div>
+        </div>
+
+        <div className="space-y-4">
+          {/* API Key */}
+          <div className="space-y-1.5">
+            <Label>API Key</Label>
+            <div className="relative">
+              <Input
+                data-ocid="settings.qwen_api_key.input"
+                type={showApiKey ? "text" : "password"}
+                placeholder="sk-xxxxxxxxxxxxxxxxxxxxxxxx"
+                value={qwenCfg.apiKey}
+                onChange={(e) =>
+                  setQwenCfg((p) => ({ ...p, apiKey: e.target.value }))
+                }
+                className="pr-10 font-mono text-sm"
+              />
+              <button
+                type="button"
+                onClick={() => setShowApiKey((p) => !p)}
+                className="absolute right-3 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground"
+              >
+                {showApiKey ? (
+                  <EyeOff className="w-4 h-4" />
+                ) : (
+                  <Eye className="w-4 h-4" />
+                )}
+              </button>
+            </div>
+            <p className="text-xs text-muted-foreground">
+              Get your free API key at{" "}
+              <a
+                href="https://console.aliyun.com/dashscope"
+                target="_blank"
+                rel="noopener noreferrer"
+                className="text-primary underline"
+              >
+                console.aliyun.com/dashscope
+              </a>
+            </p>
+          </div>
+
+          {/* Model */}
+          <div className="space-y-1.5">
+            <Label>Model</Label>
+            <Select
+              value={qwenCfg.model}
+              onValueChange={(v) => setQwenCfg((p) => ({ ...p, model: v }))}
+            >
+              <SelectTrigger data-ocid="settings.qwen_model.select">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                {QWEN_MODELS.map((m) => (
+                  <SelectItem key={m.id} value={m.id}>
+                    {m.label}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          </div>
+
+          {/* Temperature */}
+          <div className="space-y-2">
+            <div className="flex items-center justify-between">
+              <Label>Temperature</Label>
+              <span className="text-xs font-mono text-muted-foreground">
+                {qwenCfg.temperature.toFixed(1)}
+              </span>
+            </div>
+            <Slider
+              min={0}
+              max={1}
+              step={0.1}
+              value={[qwenCfg.temperature]}
+              onValueChange={([v]) =>
+                setQwenCfg((p) => ({ ...p, temperature: v ?? 0.7 }))
+              }
+              data-ocid="settings.qwen_temperature.input"
+            />
+            <div className="flex justify-between text-[10px] text-muted-foreground">
+              <span>Precise (0.0)</span>
+              <span>Creative (1.0)</span>
+            </div>
+          </div>
+
+          {/* Actions */}
+          <div className="flex gap-3 flex-wrap">
+            <Button
+              type="button"
+              data-ocid="settings.qwen_save.button"
+              onClick={handleSaveQwen}
+              className="bg-primary text-primary-foreground hover:bg-primary/90 gap-2"
+            >
+              <Save className="w-4 h-4" /> Save AI Settings
+            </Button>
+            <Button
+              type="button"
+              variant="outline"
+              data-ocid="settings.qwen_test.button"
+              onClick={handleTestConnection}
+              disabled={testingConn || !qwenCfg.apiKey}
+              className="gap-2"
+            >
+              {testingConn ? (
+                <Loader2 className="w-4 h-4 animate-spin" />
+              ) : connStatus === "ok" ? (
+                <CheckCircle className="w-4 h-4 text-success" />
+              ) : connStatus === "error" ? (
+                <XCircle className="w-4 h-4 text-destructive" />
+              ) : (
+                <Bot className="w-4 h-4" />
+              )}
+              {testingConn ? "Testing…" : "Test Connection"}
+            </Button>
+          </div>
+
+          {connStatus === "ok" && (
+            <div className="flex items-center gap-2 p-3 bg-success/10 border border-success/20 rounded-lg text-xs text-success">
+              <CheckCircle className="w-4 h-4 flex-shrink-0" />
+              Connected to Qwen AI successfully!
+            </div>
+          )}
+          {connStatus === "error" && (
+            <div className="flex items-center gap-2 p-3 bg-destructive/10 border border-destructive/20 rounded-lg text-xs text-destructive">
+              <XCircle className="w-4 h-4 flex-shrink-0" />
+              Connection failed. Check your API key and try again.
+            </div>
+          )}
         </div>
       </motion.div>
 

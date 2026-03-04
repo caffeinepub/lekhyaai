@@ -15,18 +15,33 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { Skeleton } from "@/components/ui/skeleton";
-import { Edit2, Loader2, Package, Plus, Search, Trash2 } from "lucide-react";
+import {
+  Edit2,
+  Lightbulb,
+  Loader2,
+  Package,
+  Plus,
+  Search,
+  Trash2,
+} from "lucide-react";
 import { motion } from "motion/react";
 import { useEffect, useState } from "react";
 import { toast } from "sonner";
 import type { Product } from "../backend.d";
 import DeleteConfirmDialog from "../components/DeleteConfirmDialog";
+import { useBusiness } from "../context/BusinessContext";
 import {
   useCreateProduct,
   useDeleteProduct,
   useProducts,
   useUpdateProduct,
 } from "../hooks/useQueries";
+import {
+  fuzzyMatchProduct,
+  getBusinessCategory,
+  getCategoryByName,
+  getEffectiveCategoryProducts,
+} from "../utils/companyCategories";
 import { formatINR } from "../utils/formatINR";
 import { GST_RATES } from "../utils/indianStates";
 
@@ -54,6 +69,7 @@ interface ProductModalProps {
   initialData?: Product | null;
   onSubmit: (data: ProductFormData) => Promise<void>;
   title: string;
+  businessId?: string;
 }
 
 function ProductModal({
@@ -62,10 +78,28 @@ function ProductModal({
   initialData,
   onSubmit,
   title,
+  businessId = "",
 }: ProductModalProps) {
   const [form, setForm] = useState<ProductFormData>(EMPTY_PRODUCT);
   const [errors, setErrors] = useState<Record<string, string>>({});
   const [loading, setLoading] = useState(false);
+
+  // GST auto-suggestion
+  const bizCategory = businessId ? getBusinessCategory(businessId) : "";
+  const categoryObj = bizCategory ? getCategoryByName(bizCategory) : null;
+
+  // Suggested GST for the current category
+  const suggestedGstForCategory = categoryObj
+    ? (getEffectiveCategoryProducts(categoryObj)[0]?.gstRate.toString() ??
+      categoryObj.defaultGstSlab.toString())
+    : null;
+
+  // Fuzzy match product name to get HSN/GST suggestion
+  const [productSuggestion, setProductSuggestion] = useState<{
+    hsnCode: string;
+    gstRate: number;
+    productName: string;
+  } | null>(null);
 
   useEffect(() => {
     if (open) {
@@ -82,8 +116,42 @@ function ProductModal({
         setForm(EMPTY_PRODUCT);
       }
       setErrors({});
+      setProductSuggestion(null);
     }
   }, [open, initialData]);
+
+  function handleNameChange(value: string) {
+    setForm((p) => ({ ...p, name: value }));
+    setErrors((p) => ({ ...p, name: "" }));
+
+    if (value.trim().length >= 3) {
+      const match = fuzzyMatchProduct(value, categoryObj?.id);
+      if (match) {
+        setProductSuggestion({
+          hsnCode: match.hsnCode,
+          gstRate: match.gstRate,
+          productName: match.name,
+        });
+      } else {
+        setProductSuggestion(null);
+      }
+    } else {
+      setProductSuggestion(null);
+    }
+  }
+
+  function applyProductSuggestion() {
+    if (!productSuggestion) return;
+    setForm((p) => ({
+      ...p,
+      hsnCode: productSuggestion.hsnCode,
+      gstRate: productSuggestion.gstRate.toString(),
+    }));
+    toast.success(
+      `Applied suggestion: HSN ${productSuggestion.hsnCode}, ${productSuggestion.gstRate}% GST`,
+    );
+    setProductSuggestion(null);
+  }
 
   function validate() {
     const errs: Record<string, string> = {};
@@ -124,13 +192,27 @@ function ProductModal({
               data-ocid="product.name_input"
               placeholder="Product name"
               value={form.name}
-              onChange={(e) => {
-                setForm((p) => ({ ...p, name: e.target.value }));
-                setErrors((p) => ({ ...p, name: "" }));
-              }}
+              onChange={(e) => handleNameChange(e.target.value)}
             />
             {errors.name && (
               <p className="text-destructive text-xs">{errors.name}</p>
+            )}
+            {/* Fuzzy match product suggestion */}
+            {productSuggestion && (
+              <div className="flex items-center gap-2 p-2 bg-primary/5 border border-primary/20 rounded-lg">
+                <Lightbulb className="w-3.5 h-3.5 text-primary flex-shrink-0" />
+                <p className="text-xs text-muted-foreground flex-1">
+                  Match: <strong>{productSuggestion.productName}</strong> → HSN{" "}
+                  {productSuggestion.hsnCode}, {productSuggestion.gstRate}% GST
+                </p>
+                <button
+                  type="button"
+                  onClick={applyProductSuggestion}
+                  className="text-xs text-primary font-semibold hover:underline flex-shrink-0"
+                >
+                  Use this
+                </button>
+              </div>
             )}
           </div>
 
@@ -162,6 +244,28 @@ function ProductModal({
                   ))}
                 </SelectContent>
               </Select>
+              {/* Category-based GST suggestion */}
+              {suggestedGstForCategory && bizCategory && (
+                <div className="flex items-center gap-2 mt-1">
+                  <Lightbulb className="w-3 h-3 text-primary/60" />
+                  <p className="text-[10px] text-muted-foreground">
+                    Suggested: <strong>{suggestedGstForCategory}%</strong> for{" "}
+                    {bizCategory}{" "}
+                    <button
+                      type="button"
+                      onClick={() =>
+                        setForm((p) => ({
+                          ...p,
+                          gstRate: suggestedGstForCategory,
+                        }))
+                      }
+                      className="text-primary font-semibold hover:underline"
+                    >
+                      [Use this]
+                    </button>
+                  </p>
+                </div>
+              )}
             </div>
           </div>
 
@@ -248,6 +352,8 @@ export default function ProductsPage() {
   const createProduct = useCreateProduct();
   const updateProduct = useUpdateProduct();
   const deleteProduct = useDeleteProduct();
+  const { activeBusinessId } = useBusiness();
+  const bizIdStr = activeBusinessId?.toString() ?? "";
 
   const [createOpen, setCreateOpen] = useState(false);
   const [editProduct, setEditProduct] = useState<Product | null>(null);
@@ -466,6 +572,7 @@ export default function ProductsPage() {
         onClose={() => setCreateOpen(false)}
         onSubmit={handleCreate}
         title="Add Product"
+        businessId={bizIdStr}
       />
       <ProductModal
         open={editProduct !== null}
@@ -473,6 +580,7 @@ export default function ProductsPage() {
         onSubmit={handleUpdate}
         initialData={editProduct}
         title="Edit Product"
+        businessId={bizIdStr}
       />
       <DeleteConfirmDialog
         open={deleteId !== null}

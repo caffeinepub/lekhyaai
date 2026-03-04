@@ -7,6 +7,7 @@ import {
   AlertCircle,
   AlertTriangle,
   ArrowRight,
+  Info,
   Landmark,
   Receipt,
   RefreshCw,
@@ -15,12 +16,343 @@ import {
   Wallet,
 } from "lucide-react";
 import { motion } from "motion/react";
+import { useEffect, useState } from "react";
+import {
+  Area,
+  AreaChart,
+  CartesianGrid,
+  ResponsiveContainer,
+  Tooltip,
+  XAxis,
+  YAxis,
+} from "recharts";
 import { InvoiceStatus } from "../backend.d";
 import { useBusiness } from "../context/BusinessContext";
+import { useActor } from "../hooks/useActor";
 import { useDashboard } from "../hooks/useQueries";
 import { useCustomers } from "../hooks/useQueries";
 import { formatDate, formatINR, formatINRNumber } from "../utils/formatINR";
 import { currentFY } from "../utils/formatINR";
+
+// ─── Cash Flow Forecast ───────────────────────────────────────────
+interface ForecastPoint {
+  month: string;
+  inflow: number;
+  outflow: number;
+  isForecast: boolean;
+}
+
+function linearRegression(points: number[]): (x: number) => number {
+  const n = points.length;
+  if (n === 0) return () => 0;
+  const xs = points.map((_, i) => i);
+  const ys = points;
+  const sumX = xs.reduce((a, b) => a + b, 0);
+  const sumY = ys.reduce((a, b) => a + b, 0);
+  const sumXY = xs.reduce((a, x, i) => a + x * (ys[i] ?? 0), 0);
+  const sumXX = xs.reduce((a, x) => a + x * x, 0);
+  const slope = (n * sumXY - sumX * sumY) / (n * sumXX - sumX * sumX || 1);
+  const intercept = (sumY - slope * sumX) / n;
+  return (x: number) => Math.max(0, slope * x + intercept);
+}
+
+function formatYAxis(value: number): string {
+  if (value >= 100000) return `₹${(value / 100000).toFixed(1)}L`;
+  if (value >= 1000) return `₹${(value / 1000).toFixed(1)}K`;
+  return `₹${value}`;
+}
+
+function CashFlowForecast({ businessId }: { businessId: string }) {
+  const { actor } = useActor();
+  const { activeBusinessId } = useBusiness();
+  const [forecastData, setForecastData] = useState<ForecastPoint[]>([]);
+  const [isLoadingForecast, setIsLoadingForecast] = useState(false);
+  const [nextMonthRevenue, setNextMonthRevenue] = useState(0);
+  const [nextMonthExpenses, setNextMonthExpenses] = useState(0);
+
+  // biome-ignore lint/correctness/useExhaustiveDependencies: compute on businessId change
+  useEffect(() => {
+    if (!actor || !activeBusinessId || !businessId) return;
+    setIsLoadingForecast(true);
+
+    async function computeForecast() {
+      if (!actor || !activeBusinessId) return;
+      try {
+        const [allInvoices, allExpenses] = await Promise.all([
+          actor.getInvoices(activeBusinessId),
+          actor.getExpenses(activeBusinessId),
+        ]);
+
+        // Group invoices (paid) and expenses by month over the last 6 months
+        const now = new Date();
+        const monthlyInflow: number[] = [];
+        const monthlyOutflow: number[] = [];
+        const monthLabels: string[] = [];
+
+        for (let i = 5; i >= 0; i--) {
+          const d = new Date(now.getFullYear(), now.getMonth() - i, 1);
+          const monthMs = d.getTime();
+          const nextMonthMs = new Date(
+            d.getFullYear(),
+            d.getMonth() + 1,
+            1,
+          ).getTime();
+          const monthStartNs = BigInt(monthMs) * 1_000_000n;
+          const monthEndNs = BigInt(nextMonthMs) * 1_000_000n;
+
+          const inflow = allInvoices
+            .filter(
+              (inv) =>
+                inv.status === "paid" &&
+                inv.invoiceDate >= monthStartNs &&
+                inv.invoiceDate < monthEndNs,
+            )
+            .reduce((s, inv) => s + Number(inv.totalAmount) / 100, 0);
+
+          const outflow = allExpenses
+            .filter(
+              (exp) =>
+                exp.expenseDate >= monthStartNs && exp.expenseDate < monthEndNs,
+            )
+            .reduce((s, exp) => s + Number(exp.amount) / 100, 0);
+
+          monthlyInflow.push(inflow);
+          monthlyOutflow.push(outflow);
+          monthLabels.push(
+            d.toLocaleDateString("en-IN", { month: "short", year: "2-digit" }),
+          );
+        }
+
+        // Linear regression for 3 future months
+        const inflowFn = linearRegression(monthlyInflow);
+        const outflowFn = linearRegression(monthlyOutflow);
+
+        const chartData: ForecastPoint[] = monthLabels.map((label, i) => ({
+          month: label,
+          inflow: Math.round(monthlyInflow[i] ?? 0),
+          outflow: Math.round(monthlyOutflow[i] ?? 0),
+          isForecast: false,
+        }));
+
+        for (let i = 1; i <= 3; i++) {
+          const d = new Date(now.getFullYear(), now.getMonth() + i, 1);
+          const label = d.toLocaleDateString("en-IN", {
+            month: "short",
+            year: "2-digit",
+          });
+          const projInflow = Math.round(inflowFn(monthlyInflow.length + i - 1));
+          const projOutflow = Math.round(
+            outflowFn(monthlyOutflow.length + i - 1),
+          );
+          chartData.push({
+            month: label,
+            inflow: projInflow,
+            outflow: projOutflow,
+            isForecast: true,
+          });
+          if (i === 1) {
+            setNextMonthRevenue(projInflow);
+            setNextMonthExpenses(projOutflow);
+          }
+        }
+
+        setForecastData(chartData);
+      } finally {
+        setIsLoadingForecast(false);
+      }
+    }
+
+    void computeForecast();
+  }, [businessId]);
+
+  const netCashFlow = nextMonthRevenue - nextMonthExpenses;
+
+  return (
+    <motion.div
+      initial={{ opacity: 0, y: 12 }}
+      animate={{ opacity: 1, y: 0 }}
+      transition={{ delay: 0.32 }}
+      className="bg-card rounded-xl shadow-card border border-border p-5 mb-6"
+      data-ocid="dashboard.cash_flow_forecast.card"
+    >
+      <div className="flex items-center justify-between mb-4">
+        <h3 className="font-semibold text-foreground">Cash Flow Forecast</h3>
+        <span className="text-xs text-muted-foreground bg-muted/50 px-2 py-1 rounded-full">
+          6 months history + 3 months projection
+        </span>
+      </div>
+
+      {isLoadingForecast ? (
+        <div className="space-y-2">
+          <Skeleton className="h-48 w-full" />
+          <div className="grid grid-cols-3 gap-3">
+            {[1, 2, 3].map((n) => (
+              <Skeleton key={n} className="h-16 w-full" />
+            ))}
+          </div>
+        </div>
+      ) : forecastData.length > 0 ? (
+        <>
+          <div className="h-48 w-full">
+            <ResponsiveContainer width="100%" height="100%">
+              <AreaChart
+                data={forecastData}
+                margin={{ top: 4, right: 4, left: 0, bottom: 0 }}
+              >
+                <defs>
+                  <linearGradient id="inflowGrad" x1="0" y1="0" x2="0" y2="1">
+                    <stop offset="5%" stopColor="#22c55e" stopOpacity={0.3} />
+                    <stop offset="95%" stopColor="#22c55e" stopOpacity={0.0} />
+                  </linearGradient>
+                  <linearGradient id="outflowGrad" x1="0" y1="0" x2="0" y2="1">
+                    <stop offset="5%" stopColor="#ef4444" stopOpacity={0.3} />
+                    <stop offset="95%" stopColor="#ef4444" stopOpacity={0.0} />
+                  </linearGradient>
+                </defs>
+                <CartesianGrid
+                  strokeDasharray="3 3"
+                  stroke="currentColor"
+                  strokeOpacity={0.1}
+                />
+                <XAxis
+                  dataKey="month"
+                  tick={{ fontSize: 10, fill: "currentColor", opacity: 0.5 }}
+                  axisLine={false}
+                  tickLine={false}
+                />
+                <YAxis
+                  tickFormatter={formatYAxis}
+                  tick={{ fontSize: 10, fill: "currentColor", opacity: 0.5 }}
+                  axisLine={false}
+                  tickLine={false}
+                  width={52}
+                />
+                <Tooltip
+                  formatter={(value: number) =>
+                    `₹${value.toLocaleString("en-IN")}`
+                  }
+                  labelStyle={{ fontSize: 12, fontWeight: 600 }}
+                  contentStyle={{
+                    fontSize: 11,
+                    borderRadius: 8,
+                    border: "1px solid var(--border)",
+                    background: "var(--card)",
+                  }}
+                />
+                <Area
+                  type="monotone"
+                  dataKey="inflow"
+                  name="Revenue"
+                  stroke="#22c55e"
+                  fill="url(#inflowGrad)"
+                  strokeWidth={2}
+                  dot={false}
+                />
+                <Area
+                  type="monotone"
+                  dataKey="outflow"
+                  name="Expenses"
+                  stroke="#ef4444"
+                  fill="url(#outflowGrad)"
+                  strokeWidth={2}
+                  dot={false}
+                />
+              </AreaChart>
+            </ResponsiveContainer>
+          </div>
+
+          {/* Legend */}
+          <div className="flex items-center gap-4 mt-2 mb-4">
+            <div className="flex items-center gap-1.5">
+              <div className="w-3 h-0.5 bg-success rounded" />
+              <span className="text-[10px] text-muted-foreground">Revenue</span>
+            </div>
+            <div className="flex items-center gap-1.5">
+              <div className="w-3 h-0.5 bg-destructive rounded" />
+              <span className="text-[10px] text-muted-foreground">
+                Expenses
+              </span>
+            </div>
+            <div className="flex items-center gap-1.5">
+              <div className="w-3 h-0.5 border-t-2 border-dashed border-muted-foreground rounded" />
+              <span className="text-[10px] text-muted-foreground">
+                Projected
+              </span>
+            </div>
+          </div>
+
+          {/* Insight cards */}
+          <div className="grid grid-cols-3 gap-3">
+            <div className="bg-success/10 border border-success/20 rounded-xl p-3 text-center">
+              <p className="text-[10px] text-muted-foreground mb-1">
+                Expected Revenue
+              </p>
+              <p className="text-sm font-bold text-success tabular-nums">
+                ₹{nextMonthRevenue.toLocaleString("en-IN")}
+              </p>
+              <p className="text-[10px] text-muted-foreground mt-0.5">
+                Next month
+              </p>
+            </div>
+            <div className="bg-destructive/10 border border-destructive/20 rounded-xl p-3 text-center">
+              <p className="text-[10px] text-muted-foreground mb-1">
+                Expected Expenses
+              </p>
+              <p className="text-sm font-bold text-destructive tabular-nums">
+                ₹{nextMonthExpenses.toLocaleString("en-IN")}
+              </p>
+              <p className="text-[10px] text-muted-foreground mt-0.5">
+                Next month
+              </p>
+            </div>
+            <div
+              className={cn(
+                "border rounded-xl p-3 text-center",
+                netCashFlow >= 0
+                  ? "bg-success/10 border-success/20"
+                  : "bg-destructive/10 border-destructive/20",
+              )}
+            >
+              <p className="text-[10px] text-muted-foreground mb-1">
+                Net Cash Flow
+              </p>
+              <p
+                className={cn(
+                  "text-sm font-bold tabular-nums",
+                  netCashFlow >= 0 ? "text-success" : "text-destructive",
+                )}
+              >
+                {netCashFlow >= 0 ? "+" : ""}₹
+                {Math.abs(netCashFlow).toLocaleString("en-IN")}
+              </p>
+              <p className="text-[10px] text-muted-foreground mt-0.5">
+                Revenue − Expenses
+              </p>
+            </div>
+          </div>
+
+          {/* Advisory chip */}
+          <div className="flex items-center gap-1.5 mt-3 text-muted-foreground">
+            <Info className="w-3 h-3 flex-shrink-0" />
+            <p className="text-[10px]">
+              Advisory based on historical trends. Market conditions may vary.
+            </p>
+          </div>
+        </>
+      ) : (
+        <div className="flex flex-col items-center gap-2 py-8 text-center">
+          <TrendingUp className="w-8 h-8 text-muted-foreground/40" />
+          <p className="text-sm text-muted-foreground">
+            Not enough data for forecast
+          </p>
+          <p className="text-xs text-muted-foreground/70">
+            Add invoices and expenses to see cash flow predictions
+          </p>
+        </div>
+      )}
+    </motion.div>
+  );
+}
 
 // ─── Bank & Petty Cash Widgets ───────────────────────────────────
 function BankPettyCashWidgets({ businessId }: { businessId: string }) {
@@ -400,6 +732,9 @@ export default function DashboardPage() {
           </div>
         </motion.div>
       )}
+
+      {/* Cash Flow Forecast */}
+      <CashFlowForecast businessId={activeBusiness?.id.toString() ?? ""} />
 
       {/* Bank & Petty Cash Widgets */}
       <BankPettyCashWidgets businessId={activeBusiness?.id.toString() ?? ""} />

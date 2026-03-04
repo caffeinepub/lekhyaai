@@ -25,6 +25,7 @@ import {
   Plus,
   Receipt,
   Settings,
+  Tag,
   Truck,
   UserCog,
   Users,
@@ -37,6 +38,7 @@ import { useBusiness } from "../context/BusinessContext";
 import { useTheme } from "../context/ThemeContext";
 import { useInternetIdentity } from "../hooks/useInternetIdentity";
 import CreateBusinessModal from "./CreateBusinessModal";
+import FloatingAiWidget from "./FloatingAiWidget";
 
 const navItems = [
   { path: "/", icon: LayoutDashboard, label: "Dashboard" },
@@ -44,6 +46,7 @@ const navItems = [
   { path: "/customers", icon: Users, label: "Customers" },
   { path: "/vendors", icon: Truck, label: "Vendors" },
   { path: "/products", icon: Package, label: "Products" },
+  { path: "/company-categories", icon: Tag, label: "Company Categories" },
   { path: "/expenses", icon: Receipt, label: "Expenses" },
   { path: "/bank-accounts", icon: Landmark, label: "Bank Accounts" },
   { path: "/petty-cash", icon: Wallet, label: "Petty Cash" },
@@ -385,6 +388,9 @@ export default function AppLayout() {
         open={createBizOpen}
         onClose={() => setCreateBizOpen(false)}
       />
+
+      {/* Floating AI Widget - appears on all pages except /ai-assistant */}
+      <FloatingAiWidget />
     </div>
   );
 }

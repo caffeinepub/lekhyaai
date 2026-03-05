@@ -647,11 +647,18 @@ function CreateInvoiceModal({
 interface PaymentModalProps {
   open: boolean;
   invoiceId: bigint | null;
+  invoiceAmount: bigint;
   onClose: () => void;
 }
 
-function PaymentModal({ open, invoiceId, onClose }: PaymentModalProps) {
+function PaymentModal({
+  open,
+  invoiceId,
+  invoiceAmount,
+  onClose,
+}: PaymentModalProps) {
   const addPayment = useAddPayment();
+  const updateStatus = useUpdateInvoiceStatus();
   const [form, setForm] = useState({
     amount: "",
     paymentDate: new Date().toISOString().split("T")[0],
@@ -659,18 +666,42 @@ function PaymentModal({ open, invoiceId, onClose }: PaymentModalProps) {
     referenceNo: "",
   });
 
+  // Pre-fill amount with invoice total when modal opens
+  useEffect(() => {
+    if (open && invoiceAmount > 0n) {
+      setForm((p) => ({
+        ...p,
+        amount: (Number(invoiceAmount) / 100).toFixed(2),
+        paymentDate: new Date().toISOString().split("T")[0],
+      }));
+    }
+  }, [open, invoiceAmount]);
+
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
     if (!invoiceId) return;
+    const amountPaise = BigInt(
+      Math.round(Number.parseFloat(form.amount || "0") * 100),
+    );
+    if (amountPaise <= 0n) {
+      toast.error("Enter a valid payment amount.");
+      return;
+    }
     try {
+      // Step 1: Record the payment
       await addPayment.mutateAsync({
         invoiceId,
-        amount: BigInt(Math.round(Number.parseFloat(form.amount || "0") * 100)),
+        amount: amountPaise,
         paymentDate: dateStringToNs(form.paymentDate),
         paymentMode: form.paymentMode,
         referenceNo: form.referenceNo,
       });
-      toast.success("Payment recorded!");
+      // Step 2: Mark invoice as paid (covers full or partial -- mark paid either way for now)
+      await updateStatus.mutateAsync({
+        id: invoiceId,
+        status: InvoiceStatus.paid,
+      });
+      toast.success("Payment recorded and invoice marked as Paid!");
       onClose();
     } catch {
       toast.error("Failed to record payment.");
@@ -785,6 +816,7 @@ export default function InvoicesPage() {
   const [createOpen, setCreateOpen] = useState(false);
   const [ocrOpen, setOcrOpen] = useState(false);
   const [paymentInvoiceId, setPaymentInvoiceId] = useState<bigint | null>(null);
+  const [paymentInvoiceAmount, setPaymentInvoiceAmount] = useState<bigint>(0n);
   const [deleteId, setDeleteId] = useState<bigint | null>(null);
   const [search, setSearch] = useState("");
   const [statusFilter, setStatusFilter] = useState<StatusFilter>("all");
@@ -1081,7 +1113,10 @@ export default function InvoicesPage() {
                             <button
                               type="button"
                               data-ocid={`invoices.payment.open_modal_button.${idx + 1}`}
-                              onClick={() => setPaymentInvoiceId(inv.id)}
+                              onClick={() => {
+                                setPaymentInvoiceId(inv.id);
+                                setPaymentInvoiceAmount(inv.totalAmount);
+                              }}
                               className="text-xs px-2 py-1 rounded bg-success/10 text-success hover:bg-success/20 transition-colors font-medium whitespace-nowrap"
                             >
                               Pay
@@ -1135,7 +1170,11 @@ export default function InvoicesPage() {
       <PaymentModal
         open={paymentInvoiceId !== null}
         invoiceId={paymentInvoiceId}
-        onClose={() => setPaymentInvoiceId(null)}
+        invoiceAmount={paymentInvoiceAmount}
+        onClose={() => {
+          setPaymentInvoiceId(null);
+          setPaymentInvoiceAmount(0n);
+        }}
       />
       <DeleteConfirmDialog
         open={deleteId !== null}

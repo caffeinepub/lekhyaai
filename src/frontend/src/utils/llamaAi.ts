@@ -27,29 +27,14 @@ export const LLAMA_MODELS = [
   { id: "llama-3.3-70b-versatile", label: "Llama 3.3 70B (Latest)" },
 ];
 
-const LS_KEY_API_KEY = "lekhya_llama_api_key";
+export const LS_KEY_API_KEY = "lekhya_llama_api_key";
 const LS_KEY_MODEL = "lekhya_llama_model";
 const LS_KEY_TEMPERATURE = "lekhya_llama_temperature";
 
-// Migrate old Qwen key to Llama key on first use
-function migrateOldKey() {
-  if (
-    !localStorage.getItem(LS_KEY_API_KEY) &&
-    localStorage.getItem("lekhya_qwen_api_key")
-  ) {
-    // Don't migrate — Qwen keys won't work with Groq
-    localStorage.removeItem("lekhya_qwen_api_key");
-  }
-}
-
 export function getLlamaConfig(): LlamaConfig {
-  migrateOldKey();
   return {
     apiKey: localStorage.getItem(LS_KEY_API_KEY) ?? "",
-    model:
-      localStorage.getItem(LS_KEY_MODEL) ??
-      // Also check legacy Qwen model key and map it
-      "llama3-8b-8192",
+    model: localStorage.getItem(LS_KEY_MODEL) ?? "llama3-8b-8192",
     temperature: Number.parseFloat(
       localStorage.getItem(LS_KEY_TEMPERATURE) ?? "0.7",
     ),

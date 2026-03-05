@@ -16,7 +16,6 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import { Separator } from "@/components/ui/separator";
 import { Skeleton } from "@/components/ui/skeleton";
 import {
   Table,
@@ -31,7 +30,10 @@ import { Principal } from "@icp-sdk/core/principal";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import {
   Check,
+  Edit3,
   Loader2,
+  RotateCcw,
+  Save,
   Shield,
   ShieldAlert,
   ShieldCheck,
@@ -41,7 +43,7 @@ import {
   X,
 } from "lucide-react";
 import { motion } from "motion/react";
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { toast } from "sonner";
 import { BusinessRole, type BusinessUserRole } from "../backend.d";
 import { useBusiness } from "../context/BusinessContext";
@@ -81,14 +83,9 @@ const ROLE_CONFIG: Record<
   },
 };
 
-// Permission matrix
-const PERMISSION_MATRIX = [
-  {
-    feature: "View Dashboard",
-    admin: true,
-    accountant: true,
-    ca: true,
-  },
+// Default permission matrix
+const DEFAULT_PERMISSION_MATRIX: PermissionRow[] = [
+  { feature: "View Dashboard", admin: true, accountant: true, ca: true },
   {
     feature: "Create / Edit Invoices",
     admin: true,
@@ -107,49 +104,291 @@ const PERMISSION_MATRIX = [
     accountant: true,
     ca: false,
   },
+  { feature: "Post Journal Entries", admin: true, accountant: true, ca: false },
+  { feature: "Generate GST Reports", admin: true, accountant: true, ca: true },
+  { feature: "View Ledger & Reports", admin: true, accountant: true, ca: true },
+  { feature: "Manage Users", admin: true, accountant: false, ca: false },
+  { feature: "Business Settings", admin: true, accountant: false, ca: false },
+  { feature: "Bank Accounts", admin: true, accountant: true, ca: false },
+  { feature: "Export Reports", admin: true, accountant: true, ca: true },
+  { feature: "Petty Cash", admin: true, accountant: true, ca: false },
+  { feature: "Tally Import", admin: true, accountant: false, ca: false },
+  { feature: "GST Filing Calendar", admin: true, accountant: true, ca: true },
+  { feature: "B2B Reconciliation", admin: true, accountant: true, ca: false },
+  { feature: "AI Assistant", admin: true, accountant: true, ca: true },
   {
-    feature: "Post Journal Entries",
-    admin: true,
-    accountant: true,
-    ca: false,
-  },
-  {
-    feature: "Generate GST Reports",
-    admin: true,
-    accountant: true,
-    ca: true,
-  },
-  {
-    feature: "View Ledger & Reports",
-    admin: true,
-    accountant: true,
-    ca: true,
-  },
-  {
-    feature: "Manage Users",
+    feature: "Subscription & Billing",
     admin: true,
     accountant: false,
     ca: false,
   },
-  {
-    feature: "Business Settings",
-    admin: true,
-    accountant: false,
-    ca: false,
-  },
-  {
-    feature: "Bank Accounts",
-    admin: true,
-    accountant: true,
-    ca: false,
-  },
-  {
-    feature: "Export Reports",
-    admin: true,
-    accountant: true,
-    ca: true,
-  },
+  { feature: "Company Categories", admin: true, accountant: true, ca: false },
 ];
+
+interface PermissionRow {
+  feature: string;
+  admin: boolean;
+  accountant: boolean;
+  ca: boolean;
+}
+
+const RBAC_STORAGE_KEY = "lekhyaai_rbac_matrix";
+
+function loadPermissions(): PermissionRow[] {
+  try {
+    const stored = localStorage.getItem(RBAC_STORAGE_KEY);
+    if (stored) {
+      const parsed = JSON.parse(stored) as PermissionRow[];
+      // Merge with defaults — new features added after save are included
+      const merged = DEFAULT_PERMISSION_MATRIX.map((def) => {
+        const saved = parsed.find((p) => p.feature === def.feature);
+        return saved ?? def;
+      });
+      return merged;
+    }
+  } catch {
+    // ignore
+  }
+  return DEFAULT_PERMISSION_MATRIX;
+}
+
+function savePermissions(matrix: PermissionRow[]) {
+  localStorage.setItem(RBAC_STORAGE_KEY, JSON.stringify(matrix));
+}
+
+// ─── Editable Permission Matrix ───────────────────────────────────
+function PermissionMatrix({ canEdit }: { canEdit: boolean }) {
+  const [editMode, setEditMode] = useState(false);
+  const [matrix, setMatrix] = useState<PermissionRow[]>(loadPermissions);
+  const [draft, setDraft] = useState<PermissionRow[]>([]);
+
+  function startEdit() {
+    setDraft(matrix.map((r) => ({ ...r })));
+    setEditMode(true);
+  }
+
+  function cancelEdit() {
+    setDraft([]);
+    setEditMode(false);
+  }
+
+  function saveEdit() {
+    setMatrix(draft);
+    savePermissions(draft);
+    setEditMode(false);
+    setDraft([]);
+    toast.success("Permission matrix saved");
+  }
+
+  function resetDefaults() {
+    if (!confirm("Reset all permissions to default values?")) return;
+    setMatrix(DEFAULT_PERMISSION_MATRIX);
+    savePermissions(DEFAULT_PERMISSION_MATRIX);
+    if (editMode) {
+      setDraft(DEFAULT_PERMISSION_MATRIX.map((r) => ({ ...r })));
+    }
+    toast.success("Permissions reset to defaults");
+  }
+
+  function toggleCell(idx: number, role: "admin" | "accountant" | "ca") {
+    if (!editMode) return;
+    setDraft((prev) =>
+      prev.map((row, i) => (i === idx ? { ...row, [role]: !row[role] } : row)),
+    );
+  }
+
+  const displayMatrix = editMode ? draft : matrix;
+
+  return (
+    <motion.div
+      initial={{ opacity: 0, y: 12 }}
+      animate={{ opacity: 1, y: 0 }}
+      transition={{ delay: 0.2 }}
+      className="bg-card border border-border rounded-xl overflow-hidden shadow-card"
+    >
+      <div className="px-5 py-4 border-b border-border flex items-start justify-between gap-2">
+        <div>
+          <h3 className="font-semibold text-foreground">Role Permissions</h3>
+          <p className="text-xs text-muted-foreground mt-0.5">
+            {canEdit
+              ? "Click the edit button to customise what each role can access"
+              : "What each role can access in this business"}
+          </p>
+        </div>
+        {canEdit && (
+          <div className="flex items-center gap-2 flex-shrink-0">
+            {!editMode ? (
+              <>
+                <Button
+                  size="sm"
+                  variant="outline"
+                  data-ocid="rbac.reset.button"
+                  onClick={resetDefaults}
+                  className="gap-1.5 text-xs"
+                >
+                  <RotateCcw className="w-3.5 h-3.5" />
+                  Reset
+                </Button>
+                <Button
+                  size="sm"
+                  data-ocid="rbac.edit.button"
+                  onClick={startEdit}
+                  className="gap-1.5 text-xs bg-primary text-primary-foreground"
+                >
+                  <Edit3 className="w-3.5 h-3.5" />
+                  Edit Matrix
+                </Button>
+              </>
+            ) : (
+              <>
+                <Button
+                  size="sm"
+                  variant="outline"
+                  data-ocid="rbac.cancel.button"
+                  onClick={cancelEdit}
+                  className="gap-1.5 text-xs"
+                >
+                  <X className="w-3.5 h-3.5" />
+                  Cancel
+                </Button>
+                <Button
+                  size="sm"
+                  data-ocid="rbac.save.button"
+                  onClick={saveEdit}
+                  className="gap-1.5 text-xs bg-primary text-primary-foreground"
+                >
+                  <Save className="w-3.5 h-3.5" />
+                  Save Changes
+                </Button>
+              </>
+            )}
+          </div>
+        )}
+      </div>
+
+      {editMode && (
+        <div className="px-5 py-3 bg-amber-50 dark:bg-amber-900/20 border-b border-amber-200 dark:border-amber-800 flex items-center gap-2">
+          <Edit3 className="w-4 h-4 text-amber-600 flex-shrink-0" />
+          <p className="text-xs text-amber-700 dark:text-amber-300">
+            Edit mode active — click any check/X cell to toggle. Admin column is
+            locked (always full access).
+          </p>
+        </div>
+      )}
+
+      <div className="overflow-x-auto">
+        <table className="w-full text-sm">
+          <thead>
+            <tr className="border-b border-border bg-muted/30">
+              <th className="text-left px-5 py-3 text-xs font-medium text-muted-foreground">
+                Feature / Module
+              </th>
+              {(["admin", "accountant", "ca"] as const).map((role) => {
+                const cfg = ROLE_CONFIG[role as BusinessRole];
+                return (
+                  <th
+                    key={role}
+                    className="text-center px-4 py-3 text-xs font-medium min-w-[90px]"
+                  >
+                    <Badge
+                      variant="outline"
+                      className={cn("text-xs", cfg.badge)}
+                    >
+                      {cfg.label}
+                    </Badge>
+                  </th>
+                );
+              })}
+            </tr>
+          </thead>
+          <tbody>
+            {displayMatrix.map((row, idx) => (
+              <tr
+                key={row.feature}
+                className={cn(
+                  "border-b border-border last:border-0 transition-colors",
+                  idx % 2 === 0 && "bg-muted/5",
+                  editMode && "hover:bg-primary/5",
+                )}
+                data-ocid={`users.permissions.row.${idx + 1}`}
+              >
+                <td className="px-5 py-3 text-sm text-foreground">
+                  {row.feature}
+                </td>
+                {(["admin", "accountant", "ca"] as const).map((role) => {
+                  const value = row[role];
+                  const isAdminCol = role === "admin";
+                  const clickable = editMode && !isAdminCol;
+                  return (
+                    <td
+                      key={role}
+                      className={cn(
+                        "px-4 py-3 text-center",
+                        clickable && "cursor-pointer select-none group",
+                      )}
+                      onClick={
+                        clickable ? () => toggleCell(idx, role) : undefined
+                      }
+                      onKeyDown={
+                        clickable
+                          ? (e) => {
+                              if (e.key === "Enter" || e.key === " ")
+                                toggleCell(idx, role);
+                            }
+                          : undefined
+                      }
+                      // biome-ignore lint/a11y/useSemanticElements: interactive td within edit matrix
+                      role={clickable ? "button" : undefined}
+                      tabIndex={clickable ? 0 : undefined}
+                      data-ocid={
+                        clickable
+                          ? `rbac.cell.${idx + 1}.${role}.toggle`
+                          : undefined
+                      }
+                    >
+                      {value ? (
+                        <span
+                          className={cn(
+                            "inline-flex items-center justify-center w-6 h-6 rounded-full",
+                            clickable
+                              ? "bg-success/10 group-hover:bg-destructive/10 transition-colors"
+                              : "",
+                          )}
+                        >
+                          <Check className="w-4 h-4 text-success" />
+                        </span>
+                      ) : (
+                        <span
+                          className={cn(
+                            "inline-flex items-center justify-center w-6 h-6 rounded-full",
+                            clickable
+                              ? "bg-muted/40 group-hover:bg-success/10 transition-colors"
+                              : "",
+                          )}
+                        >
+                          <X className="w-4 h-4 text-destructive/50" />
+                        </span>
+                      )}
+                    </td>
+                  );
+                })}
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+
+      {canEdit && (
+        <div className="px-5 py-3 border-t border-border bg-muted/20">
+          <p className="text-xs text-muted-foreground">
+            Changes are saved to this browser. Admin always has full access and
+            cannot be restricted.
+          </p>
+        </div>
+      )}
+    </motion.div>
+  );
+}
 
 // ─── Invite User Dialog ──────────────────────────────────────────
 function InviteUserDialog({
@@ -170,7 +409,6 @@ function InviteUserDialog({
       toast.error("Principal ID is required");
       return;
     }
-    // Basic principal validation
     try {
       Principal.fromText(principalId.trim());
     } catch {
@@ -233,7 +471,6 @@ function InviteUserDialog({
               </SelectContent>
             </Select>
           </div>
-          {/* Role preview */}
           {role && (
             <div className="bg-muted/30 rounded-lg p-3 border border-border">
               <div className="flex items-center gap-2 mb-1">
@@ -525,84 +762,8 @@ export default function UsersPage() {
         )}
       </div>
 
-      {/* Permission Matrix */}
-      <motion.div
-        initial={{ opacity: 0, y: 12 }}
-        animate={{ opacity: 1, y: 0 }}
-        transition={{ delay: 0.2 }}
-        className="bg-card border border-border rounded-xl overflow-hidden shadow-card"
-      >
-        <div className="px-5 py-4 border-b border-border">
-          <h3 className="font-semibold text-foreground">Role Permissions</h3>
-          <p className="text-xs text-muted-foreground mt-0.5">
-            What each role can access in this business
-          </p>
-        </div>
-        <div className="overflow-x-auto">
-          <table className="w-full text-sm">
-            <thead>
-              <tr className="border-b border-border bg-muted/30">
-                <th className="text-left px-5 py-3 text-xs font-medium text-muted-foreground">
-                  Feature
-                </th>
-                {(["admin", "accountant", "ca"] as const).map((role) => {
-                  const cfg = ROLE_CONFIG[role as BusinessRole];
-                  return (
-                    <th
-                      key={role}
-                      className="text-center px-4 py-3 text-xs font-medium"
-                    >
-                      <Badge
-                        variant="outline"
-                        className={cn("text-xs", cfg.badge)}
-                      >
-                        {cfg.label}
-                      </Badge>
-                    </th>
-                  );
-                })}
-              </tr>
-            </thead>
-            <tbody>
-              {PERMISSION_MATRIX.map((row, idx) => (
-                <tr
-                  key={row.feature}
-                  className={cn(
-                    "border-b border-border last:border-0 hover:bg-muted/10 transition-colors",
-                    idx % 2 === 0 && "bg-muted/5",
-                  )}
-                  data-ocid={`users.permissions.row.${idx + 1}`}
-                >
-                  <td className="px-5 py-3 text-sm text-foreground">
-                    {row.feature}
-                  </td>
-                  <td className="px-4 py-3 text-center">
-                    {row.admin ? (
-                      <Check className="w-4 h-4 text-success mx-auto" />
-                    ) : (
-                      <X className="w-4 h-4 text-destructive/50 mx-auto" />
-                    )}
-                  </td>
-                  <td className="px-4 py-3 text-center">
-                    {row.accountant ? (
-                      <Check className="w-4 h-4 text-success mx-auto" />
-                    ) : (
-                      <X className="w-4 h-4 text-destructive/50 mx-auto" />
-                    )}
-                  </td>
-                  <td className="px-4 py-3 text-center">
-                    {row.ca ? (
-                      <Check className="w-4 h-4 text-success mx-auto" />
-                    ) : (
-                      <X className="w-4 h-4 text-destructive/50 mx-auto" />
-                    )}
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
-      </motion.div>
+      {/* Editable Permission Matrix */}
+      <PermissionMatrix canEdit={canManage} />
 
       <InviteUserDialog
         open={inviteOpen}

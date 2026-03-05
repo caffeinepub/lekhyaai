@@ -69,6 +69,7 @@ const navItems = [
   { path: "/users", icon: UserCog, label: "Users & Access" },
   { path: "/subscription", icon: CreditCard, label: "Subscription" },
   { path: "/settings", icon: Settings, label: "Settings" },
+  { path: "/user-manual", icon: BookOpen, label: "User Manual" },
 ];
 
 // Bottom nav items for mobile (primary 4 + More)

@@ -887,10 +887,23 @@ export default function SettingsPage() {
           <div className="w-10 h-10 rounded-xl bg-primary/10 flex items-center justify-center">
             <Bot className="w-5 h-5 text-primary" />
           </div>
-          <div>
-            <h3 className="font-semibold text-foreground">
-              AI Engine — Meta Llama (via Groq)
-            </h3>
+          <div className="flex-1">
+            <div className="flex items-center gap-2 flex-wrap">
+              <h3 className="font-semibold text-foreground">
+                AI Engine — Meta Llama (via Groq)
+              </h3>
+              {llamaCfg.apiKey ? (
+                <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[11px] font-medium bg-green-500/10 text-green-600 border border-green-500/20">
+                  <CheckCircle className="w-3 h-3" />
+                  API key saved
+                </span>
+              ) : (
+                <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[11px] font-medium bg-amber-500/10 text-amber-600 border border-amber-500/20">
+                  <AlertTriangle className="w-3 h-3" />
+                  API key required
+                </span>
+              )}
+            </div>
             <p className="text-xs text-muted-foreground">
               Power the AI Accountant with Meta Llama 3 — free, fast, no credit
               card needed

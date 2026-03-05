@@ -22,6 +22,7 @@ import { useBusiness } from "../context/BusinessContext";
 import { useActor } from "../hooks/useActor";
 import { useInternetIdentity } from "../hooks/useInternetIdentity";
 import {
+  LS_KEY_API_KEY,
   type StoredMessage,
   callLlamaApi,
   clearChatHistory,
@@ -165,8 +166,19 @@ export default function AiAssistantPage() {
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLInputElement>(null);
 
-  const llamaCfg = getLlamaConfig();
+  const [llamaCfg, setLlamaCfg] = useState(() => getLlamaConfig());
   const hasApiKey = !!llamaCfg.apiKey;
+
+  // Re-read config if the user saves an API key in Settings (same tab or cross-tab)
+  useEffect(() => {
+    function onStorage(e: StorageEvent) {
+      if (e.key === LS_KEY_API_KEY || e.key === null) {
+        setLlamaCfg(getLlamaConfig());
+      }
+    }
+    window.addEventListener("storage", onStorage);
+    return () => window.removeEventListener("storage", onStorage);
+  }, []);
 
   // Persist messages to localStorage
   // biome-ignore lint/correctness/useExhaustiveDependencies: persist on messages change
@@ -286,8 +298,8 @@ Always be professional but friendly. Format financial outputs as ₹ X,XX,XXX`;
         );
 
         const historyMsgs = messages
-          .filter((m) => m.id !== "welcome" && m.role !== "assistant")
-          .slice(-8)
+          .filter((m) => m.id !== "welcome")
+          .slice(-10)
           .map((m) => ({
             role: m.role as "user" | "assistant",
             content: m.content,

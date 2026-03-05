@@ -27,6 +27,22 @@ export const LLAMA_MODELS = [
   { id: "llama-3.3-70b-versatile", label: "Llama 3.3 70B (Latest)" },
 ];
 
+// Vision-capable models available on Groq
+export const LLAMA_VISION_MODELS = [
+  {
+    id: "meta-llama/llama-4-scout-17b-16e-instruct",
+    label: "Llama 4 Scout 17B (Best for OCR)",
+  },
+  { id: "llama-3.2-11b-vision-preview", label: "Llama 3.2 11B Vision (Fast)" },
+  {
+    id: "llama-3.2-90b-vision-preview",
+    label: "Llama 3.2 90B Vision (Powerful)",
+  },
+];
+
+export const DEFAULT_VISION_MODEL = "meta-llama/llama-4-scout-17b-16e-instruct";
+const LS_KEY_VISION_MODEL = "lekhya_llama_vision_model";
+
 export const LS_KEY_API_KEY = "lekhya_llama_api_key";
 const LS_KEY_MODEL = "lekhya_llama_model";
 const LS_KEY_TEMPERATURE = "lekhya_llama_temperature";
@@ -48,6 +64,90 @@ export function saveLlamaConfig(config: Partial<LlamaConfig>) {
     localStorage.setItem(LS_KEY_MODEL, config.model);
   if (config.temperature !== undefined)
     localStorage.setItem(LS_KEY_TEMPERATURE, config.temperature.toString());
+}
+
+export function getLlamaVisionModel(): string {
+  return localStorage.getItem(LS_KEY_VISION_MODEL) ?? DEFAULT_VISION_MODEL;
+}
+
+export function saveLlamaVisionModel(model: string) {
+  localStorage.setItem(LS_KEY_VISION_MODEL, model);
+}
+
+/**
+ * Call Groq's vision-capable Llama model with an image.
+ * Sends a base64-encoded image and a text prompt.
+ * Returns the model's text response.
+ */
+export async function callLlamaVision(
+  base64Image: string,
+  mimeType: string,
+  prompt: string,
+  config?: Partial<LlamaConfig>,
+): Promise<string> {
+  const cfg = { ...getLlamaConfig(), ...config };
+  if (!cfg.apiKey) {
+    throw new Error("NO_API_KEY");
+  }
+
+  const visionModel = getLlamaVisionModel();
+
+  try {
+    const resp = await fetch(
+      "https://api.groq.com/openai/v1/chat/completions",
+      {
+        method: "POST",
+        headers: {
+          Authorization: `Bearer ${cfg.apiKey}`,
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          model: visionModel,
+          messages: [
+            {
+              role: "user",
+              content: [
+                {
+                  type: "image_url",
+                  image_url: {
+                    url: `data:${mimeType};base64,${base64Image}`,
+                  },
+                },
+                {
+                  type: "text",
+                  text: prompt,
+                },
+              ],
+            },
+          ],
+          temperature: 0.1, // low temp for accurate extraction
+          max_tokens: 4096,
+          stream: false,
+        }),
+      },
+    );
+
+    if (!resp.ok) {
+      const errText = await resp.text().catch(() => "Unknown error");
+      if (resp.status === 401) throw new Error("INVALID_API_KEY");
+      if (resp.status === 429) throw new Error("RATE_LIMIT");
+      if (resp.status === 400) throw new Error(`BAD_REQUEST:${errText}`);
+      throw new Error(`API_ERROR:${resp.status}:${errText}`);
+    }
+
+    const data = await resp.json();
+    const content = data?.choices?.[0]?.message?.content;
+    if (!content) throw new Error("EMPTY_RESPONSE");
+    return content as string;
+  } catch (err: unknown) {
+    if (
+      err instanceof TypeError &&
+      (err as TypeError).message === "Failed to fetch"
+    ) {
+      throw new Error("CORS_ERROR");
+    }
+    throw err;
+  }
 }
 
 /**

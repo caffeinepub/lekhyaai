@@ -21,13 +21,12 @@ import {
   CheckCircle,
   Eye,
   EyeOff,
-  FileSearch,
   ImageIcon,
-  Info,
   Loader2,
   Palette,
   Plus,
   Save,
+  ScanLine,
   Tag,
   Trash2,
   Upload,
@@ -50,9 +49,13 @@ import {
 import { INDIAN_STATES } from "../utils/indianStates";
 import {
   LLAMA_MODELS,
+  LLAMA_VISION_MODELS,
   callLlamaApi,
+  callLlamaVision,
   getLlamaConfig,
+  getLlamaVisionModel,
   saveLlamaConfig,
+  saveLlamaVisionModel,
 } from "../utils/llamaAi";
 
 export default function SettingsPage() {
@@ -116,104 +119,42 @@ export default function SettingsPage() {
     }
   }
 
-  // ─── Document AI Config ───────────────────────────────────────────
-  const [docAiCfg, setDocAiCfg] = useState(() => {
-    try {
-      const s = localStorage.getItem("docai_config");
-      return s
-        ? (JSON.parse(s) as {
-            projectId: string;
-            location: string;
-            processorId: string;
-            apiKey: string;
-            visionApiKey: string;
-          })
-        : {
-            projectId: "",
-            location: "us",
-            processorId: "",
-            apiKey: "",
-            visionApiKey: "",
-          };
-    } catch {
-      return {
-        projectId: "",
-        location: "us",
-        processorId: "",
-        apiKey: "",
-        visionApiKey: "",
-      };
-    }
-  });
-  const [showDocApiKey, setShowDocApiKey] = useState(false);
-  const [showVisionKey, setShowVisionKey] = useState(false);
+  // ─── Llama Vision (OCR) Config ────────────────────────────────────
+  const [visionModel, setVisionModel] = useState(() => getLlamaVisionModel());
   const [testingVision, setTestingVision] = useState(false);
   const [visionStatus, setVisionStatus] = useState<"idle" | "ok" | "error">(
     "idle",
   );
 
-  const visionKeyActive = !!(
-    docAiCfg.visionApiKey?.trim() || docAiCfg.apiKey?.trim()
-  );
-
-  function handleSaveDocAi() {
-    localStorage.setItem("docai_config", JSON.stringify(docAiCfg));
-    toast.success("OCR settings saved!");
-  }
-
-  function handleClearDocAi() {
-    localStorage.removeItem("docai_config");
-    setDocAiCfg({
-      projectId: "",
-      location: "us",
-      processorId: "",
-      apiKey: "",
-      visionApiKey: "",
-    });
-    setVisionStatus("idle");
-    toast.success("OCR credentials cleared.");
+  function handleSaveVisionModel() {
+    saveLlamaVisionModel(visionModel);
+    toast.success("OCR vision model saved!");
   }
 
   async function handleTestVision() {
-    const key = docAiCfg.visionApiKey?.trim() || docAiCfg.apiKey?.trim();
-    if (!key) {
-      toast.error("Please enter your Cloud Vision API key first.");
+    if (!llamaCfg.apiKey) {
+      toast.error("No Groq API key. Save your key in AI Engine above first.");
       return;
     }
     setTestingVision(true);
     setVisionStatus("idle");
     try {
-      // Test with a 1x1 transparent PNG — just validates the API key
-      const tinyPng =
-        "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg==";
-      const res = await fetch(
-        `https://vision.googleapis.com/v1/images:annotate?key=${key}`,
-        {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
-            requests: [
-              {
-                image: { content: tinyPng },
-                features: [{ type: "TEXT_DETECTION" }],
-              },
-            ],
-          }),
-        },
-      );
-      const data = (await res.json()) as {
-        responses?: Array<{ error?: { message: string } }>;
-      };
-      if (!res.ok || data.responses?.[0]?.error) {
-        const msg = data.responses?.[0]?.error?.message ?? `HTTP ${res.status}`;
-        throw new Error(msg);
-      }
+      // Test with a tiny 1x1 white JPEG
+      const tinyJpeg =
+        "/9j/4AAQSkZJRgABAQEASABIAAD/2wBDAAgGBgcGBQgHBwcJCQgKDBQNDAsLDBkSEw8UHRofHh0aHBwgJC4nICIsIxwcKDcpLDAxNDQ0Hyc5PTgyPC4zNDL/2wBDAQkJCQwLDBgNDRgyIRwhMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjL/wAARCAABAAEDASIAAhEBAxEB/8QAFAABAAAAAAAAAAAAAAAAAAAACf/EABQQAQAAAAAAAAAAAAAAAAAAAAD/xAAUAQEAAAAAAAAAAAAAAAAAAAAA/8QAFBEBAAAAAAAAAAAAAAAAAAAAAP/aAAwDAQACEQMRAD8AJQAB/9k=";
+      await callLlamaVision(tinyJpeg, "image/jpeg", "Say OK in one word.", {
+        apiKey: llamaCfg.apiKey,
+      });
       setVisionStatus("ok");
-      toast.success("Google Cloud Vision API key is valid!");
+      toast.success("Llama Vision is working! Ready to scan invoices.");
     } catch (err) {
       setVisionStatus("error");
       const msg = err instanceof Error ? err.message : "Unknown error";
-      toast.error(`Vision API test failed: ${msg}`);
+      if (msg === "INVALID_API_KEY")
+        toast.error("Invalid Groq API key. Get yours at console.groq.com");
+      else if (msg === "RATE_LIMIT")
+        toast.error("Rate limit. Wait a moment and retry.");
+      else toast.error(`Vision test failed: ${msg}`);
     } finally {
       setTestingVision(false);
     }
@@ -1059,7 +1000,7 @@ export default function SettingsPage() {
         </div>
       </motion.div>
 
-      {/* ─── Invoice OCR — Google Cloud Vision ─── */}
+      {/* ─── Invoice OCR — Llama Vision ─── */}
       <motion.div
         initial={{ opacity: 0, y: 12 }}
         animate={{ opacity: 1, y: 0 }}
@@ -1068,236 +1009,130 @@ export default function SettingsPage() {
       >
         <div className="flex items-center gap-3 mb-5">
           <div className="w-10 h-10 rounded-xl bg-primary/10 flex items-center justify-center">
-            <FileSearch className="w-5 h-5 text-primary" />
+            <ScanLine className="w-5 h-5 text-primary" />
           </div>
           <div className="flex-1">
             <div className="flex items-center gap-2 flex-wrap">
               <h3 className="font-semibold text-foreground">
-                Invoice OCR — Google Cloud Vision
+                Invoice OCR — Llama Vision
               </h3>
-              {visionKeyActive ? (
+              {llamaCfg.apiKey ? (
                 <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[11px] font-medium bg-green-500/10 text-green-600 border border-green-500/20">
                   <CheckCircle className="w-3 h-3" />
-                  API key configured
+                  Ready to scan
                 </span>
               ) : (
                 <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[11px] font-medium bg-amber-500/10 text-amber-600 border border-amber-500/20">
                   <AlertTriangle className="w-3 h-3" />
-                  API key required
+                  Groq API key required
                 </span>
               )}
             </div>
             <p className="text-xs text-muted-foreground mt-0.5">
-              Google Cloud Vision API powers invoice scanning. Works directly
-              from the browser — no proxy needed.
+              Llama Vision reads your invoice image directly — no Google, no
+              third-party OCR. Pure Groq Llama.
             </p>
           </div>
         </div>
 
-        {/* Setup instructions */}
-        <div className="rounded-lg border border-primary/20 bg-primary/5 p-4 mb-5 text-xs text-muted-foreground">
-          <p className="font-medium text-foreground mb-1.5">
-            How to get your free API key:
-          </p>
-          <ol className="list-decimal list-inside space-y-1">
-            <li>
-              Go to{" "}
-              <a
-                href="https://console.cloud.google.com"
-                target="_blank"
-                rel="noopener noreferrer"
-                className="text-primary underline font-medium"
-              >
-                console.cloud.google.com
-              </a>
-            </li>
-            <li>
-              Create or select a project →{" "}
-              <strong>APIs &amp; Services → Library</strong>
-            </li>
-            <li>
-              Search for <strong>"Cloud Vision API"</strong> and{" "}
-              <strong>Enable</strong> it
-            </li>
-            <li>
-              Go to{" "}
-              <strong>
-                APIs &amp; Services → Credentials → Create API Key
-              </strong>
-            </li>
-            <li>
-              Restrict the key to <strong>Cloud Vision API</strong> only and
-              paste it below
-            </li>
-          </ol>
-          <p className="mt-2 text-muted-foreground">
-            Free tier: 1,000 units/month. Invoice scan = 1 unit.
-          </p>
+        {/* How it works banner */}
+        <div className="rounded-lg border border-primary/20 bg-primary/5 p-4 mb-5 text-xs">
+          <div className="flex items-start gap-2">
+            <Bot className="w-4 h-4 text-primary mt-0.5 flex-shrink-0" />
+            <div>
+              <p className="font-semibold text-foreground mb-1">
+                How invoice scanning works
+              </p>
+              <p className="text-muted-foreground">
+                Upload a photo or PDF of any Indian GST invoice. Llama's vision
+                model reads the image directly — it sees the invoice exactly as
+                you do — and extracts all fields (invoice number, GSTINs, line
+                items with HSN codes, GST split, bank details) into a structured
+                form for your review. No Google, no Tesseract, no external OCR
+                service.
+              </p>
+              <p className="text-muted-foreground mt-1.5">
+                Your <strong className="text-foreground">Groq API key</strong>{" "}
+                (saved in AI Engine above) is all you need. The same key powers
+                the AI Assistant and invoice scanning.
+              </p>
+            </div>
+          </div>
         </div>
 
         <div className="space-y-4">
-          {/* Cloud Vision API Key — primary field */}
+          {/* Vision Model Selector */}
           <div className="space-y-1.5">
-            <Label>
-              Cloud Vision API Key <span className="text-destructive">*</span>
-            </Label>
-            <div className="relative">
-              <Input
-                data-ocid="settings.vision_api_key.input"
-                type={showVisionKey ? "text" : "password"}
-                value={docAiCfg.visionApiKey ?? ""}
-                onChange={(e) =>
-                  setDocAiCfg((p) => ({ ...p, visionApiKey: e.target.value }))
-                }
-                placeholder="AIzaSy…"
-                className="pr-10 font-mono text-sm"
-              />
-              <button
-                type="button"
-                onClick={() => setShowVisionKey((p) => !p)}
-                className="absolute right-3 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground"
-              >
-                {showVisionKey ? (
-                  <EyeOff className="w-4 h-4" />
-                ) : (
-                  <Eye className="w-4 h-4" />
-                )}
-              </button>
-            </div>
+            <Label>Llama Vision Model for Invoice Scanning</Label>
+            <Select value={visionModel} onValueChange={setVisionModel}>
+              <SelectTrigger data-ocid="settings.vision_model.select">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                {LLAMA_VISION_MODELS.map((m) => (
+                  <SelectItem key={m.id} value={m.id}>
+                    {m.label}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
             <p className="text-xs text-muted-foreground">
-              This key is stored only in your browser's local storage.
+              Llama 4 Scout gives the best accuracy for dense invoice documents.
+              Use 3.2 11B if you hit rate limits.
             </p>
           </div>
 
-          {/* Connection status */}
+          {/* Status messages */}
           {visionStatus === "ok" && (
             <div className="flex items-center gap-2 p-3 bg-green-500/10 border border-green-500/20 rounded-lg text-xs text-green-600">
               <CheckCircle className="w-4 h-4 flex-shrink-0" />
-              Connected to Google Cloud Vision API successfully!
+              Llama Vision is connected and ready to scan invoices!
             </div>
           )}
           {visionStatus === "error" && (
             <div className="flex items-center gap-2 p-3 bg-destructive/10 border border-destructive/20 rounded-lg text-xs text-destructive">
               <XCircle className="w-4 h-4 flex-shrink-0" />
-              API key test failed. Check the key and ensure Cloud Vision API is
-              enabled.
+              Test failed. Check your Groq API key in AI Engine above.
+            </div>
+          )}
+
+          {!llamaCfg.apiKey && (
+            <div className="flex items-center gap-2 p-3 bg-amber-500/10 border border-amber-500/20 rounded-lg text-xs text-amber-700">
+              <AlertTriangle className="w-4 h-4 flex-shrink-0" />
+              Add your Groq API key in the AI Engine section above, then come
+              back here to save the vision model.
             </div>
           )}
 
           <div className="flex gap-3 flex-wrap">
             <Button
               type="button"
-              data-ocid="settings.docai_save.button"
-              onClick={handleSaveDocAi}
+              data-ocid="settings.vision_save.button"
+              onClick={handleSaveVisionModel}
               className="bg-primary text-primary-foreground hover:bg-primary/90 gap-2"
             >
-              <Save className="w-4 h-4" /> Save API Key
+              <Save className="w-4 h-4" /> Save Vision Model
             </Button>
             <Button
               type="button"
               variant="outline"
               data-ocid="settings.vision_test.button"
               onClick={handleTestVision}
-              disabled={testingVision || !visionKeyActive}
+              disabled={testingVision || !llamaCfg.apiKey}
               className="gap-2"
             >
               {testingVision ? (
                 <Loader2 className="w-4 h-4 animate-spin" />
               ) : visionStatus === "ok" ? (
                 <CheckCircle className="w-4 h-4 text-green-600" />
+              ) : visionStatus === "error" ? (
+                <XCircle className="w-4 h-4 text-destructive" />
               ) : (
-                <FileSearch className="w-4 h-4" />
+                <ScanLine className="w-4 h-4" />
               )}
-              {testingVision ? "Testing…" : "Test Connection"}
-            </Button>
-            <Button
-              type="button"
-              variant="outline"
-              data-ocid="settings.docai_clear.button"
-              onClick={handleClearDocAi}
-              className="gap-2 text-destructive hover:text-destructive hover:bg-destructive/10"
-            >
-              <X className="w-4 h-4" /> Clear
+              {testingVision ? "Testing…" : "Test Vision"}
             </Button>
           </div>
-
-          {/* Document AI reference fields (optional, for future use) */}
-          <details className="group">
-            <summary className="text-xs text-muted-foreground cursor-pointer hover:text-foreground select-none">
-              Advanced: Google Document AI (optional)
-            </summary>
-            <div className="mt-3 space-y-3 pl-2 border-l border-border">
-              <p className="text-xs text-muted-foreground">
-                Document AI Invoice Parser provides structured field extraction.
-                Requires a GCP project with Document AI API enabled. Save
-                credentials here for future use.
-              </p>
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                <div className="space-y-1.5">
-                  <Label className="text-xs">Project ID</Label>
-                  <Input
-                    data-ocid="settings.docai_project_id.input"
-                    value={docAiCfg.projectId}
-                    onChange={(e) =>
-                      setDocAiCfg((p) => ({ ...p, projectId: e.target.value }))
-                    }
-                    placeholder="my-gcp-project"
-                    className="text-sm"
-                  />
-                </div>
-                <div className="space-y-1.5">
-                  <Label className="text-xs">Location</Label>
-                  <Input
-                    data-ocid="settings.docai_location.input"
-                    value={docAiCfg.location}
-                    onChange={(e) =>
-                      setDocAiCfg((p) => ({ ...p, location: e.target.value }))
-                    }
-                    placeholder="us"
-                    className="text-sm"
-                  />
-                </div>
-              </div>
-              <div className="space-y-1.5">
-                <Label className="text-xs">Processor ID</Label>
-                <Input
-                  data-ocid="settings.docai_processor_id.input"
-                  value={docAiCfg.processorId}
-                  onChange={(e) =>
-                    setDocAiCfg((p) => ({ ...p, processorId: e.target.value }))
-                  }
-                  placeholder="xxxxxxxxxxxxxxxx"
-                  className="font-mono text-sm"
-                />
-              </div>
-              <div className="space-y-1.5">
-                <Label className="text-xs">Document AI API Key</Label>
-                <div className="relative">
-                  <Input
-                    data-ocid="settings.docai_api_key.input"
-                    type={showDocApiKey ? "text" : "password"}
-                    value={docAiCfg.apiKey}
-                    onChange={(e) =>
-                      setDocAiCfg((p) => ({ ...p, apiKey: e.target.value }))
-                    }
-                    placeholder="AIza…"
-                    className="pr-10 font-mono text-sm"
-                  />
-                  <button
-                    type="button"
-                    onClick={() => setShowDocApiKey((p) => !p)}
-                    className="absolute right-3 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground"
-                  >
-                    {showDocApiKey ? (
-                      <EyeOff className="w-4 h-4" />
-                    ) : (
-                      <Eye className="w-4 h-4" />
-                    )}
-                  </button>
-                </div>
-              </div>
-            </div>
-          </details>
         </div>
       </motion.div>
 

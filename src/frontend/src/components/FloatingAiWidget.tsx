@@ -14,12 +14,13 @@ import { useBusiness } from "../context/BusinessContext";
 import { useActor } from "../hooks/useActor";
 import { useInternetIdentity } from "../hooks/useInternetIdentity";
 import {
+  LS_KEY_API_KEY,
   type StoredMessage,
-  callQwenApi,
+  callLlamaApi,
   getChatHistory,
-  getQwenConfig,
+  getLlamaConfig,
   saveChatHistory,
-} from "../utils/qwenAi";
+} from "../utils/llamaAi";
 
 interface WidgetMessage {
   id: string;
@@ -75,7 +76,18 @@ export default function FloatingAiWidget() {
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLInputElement>(null);
 
-  const qwenCfg = getQwenConfig();
+  const [llamaCfg, setLlamaCfg] = useState(() => getLlamaConfig());
+  const hasApiKey = !!llamaCfg.apiKey;
+
+  useEffect(() => {
+    function onStorage(e: StorageEvent) {
+      if (e.key === LS_KEY_API_KEY || e.key === null) {
+        setLlamaCfg(getLlamaConfig());
+      }
+    }
+    window.addEventListener("storage", onStorage);
+    return () => window.removeEventListener("storage", onStorage);
+  }, []);
 
   // Don't show on /ai-assistant page
   const isAiPage = location.pathname === "/ai-assistant";
@@ -146,7 +158,7 @@ export default function FloatingAiWidget() {
 
       let responseContent: string;
 
-      if (qwenCfg.apiKey) {
+      if (hasApiKey) {
         const year =
           new Date().getMonth() >= 3
             ? new Date().getFullYear()
@@ -165,11 +177,14 @@ Be concise (2-4 sentences). Format money as ₹X,XX,XXX. Follow Indian GST laws.
           }));
 
         try {
-          responseContent = await callQwenApi([
-            { role: "system", content: systemPrompt },
-            ...recentHistory,
-            { role: "user", content: text },
-          ]);
+          responseContent = await callLlamaApi(
+            [
+              { role: "system", content: systemPrompt },
+              ...recentHistory,
+              { role: "user", content: text },
+            ],
+            llamaCfg,
+          );
         } catch {
           responseContent = getWidgetRuleBasedResponse(
             text,
@@ -296,13 +311,11 @@ Be concise (2-4 sentences). Format money as ₹X,XX,XXX. Follow Indian GST laws.
                     <span
                       className={cn(
                         "w-1.5 h-1.5 rounded-full",
-                        qwenCfg.apiKey
-                          ? "bg-success animate-pulse"
-                          : "bg-warning",
+                        hasApiKey ? "bg-success animate-pulse" : "bg-warning",
                       )}
                     />
                     <p className="text-[10px] text-muted-foreground">
-                      {qwenCfg.apiKey ? "Qwen AI Active" : "Rule-based mode"}
+                      {hasApiKey ? "Llama AI Active" : "Rule-based mode"}
                     </p>
                   </div>
                 </div>
@@ -479,5 +492,5 @@ function getWidgetRuleBasedResponse(
       : `${overdue.length} overdue invoice(s) totalling ₹${(overdue.reduce((s, i) => s + Number(i.totalAmount), 0) / 100).toLocaleString("en-IN")}`;
   }
 
-  return "I can help with GST calculations, overdue invoices, and financial analysis. Try asking 'How much GST do I owe?' or configure your Qwen API key in Settings for full AI responses.";
+  return "I can help with GST calculations, overdue invoices, and financial analysis. Try asking 'How much GST do I owe?' or configure your **Groq API key** in Settings > AI Engine for full Llama AI responses.";
 }

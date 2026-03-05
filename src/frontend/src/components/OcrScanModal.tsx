@@ -997,35 +997,14 @@ export default function OcrScanModal({
     setPreviewUrl(url);
 
     try {
-      // ── Read Document AI / Cloud Vision config from Settings ──────
-      let docAiCfg: {
-        projectId: string;
-        location: string;
-        processorId: string;
-        apiKey: string;
-        visionApiKey?: string;
-      } = {
-        projectId: "",
-        location: "us",
-        processorId: "",
-        apiKey: "",
-        visionApiKey: "",
-      };
-      try {
-        const s = localStorage.getItem("docai_config");
-        if (s) docAiCfg = JSON.parse(s);
-      } catch {
-        /* ignore */
-      }
+      // ── Check Groq API key ─────────────────────────────────────────
+      const { callLlamaVision, getLlamaConfig, getLlamaVisionModel } =
+        await import("../utils/llamaAi");
+      const llamaCfg = getLlamaConfig();
 
-      // Prefer Cloud Vision API key (works from browser). Fall back to docai apiKey field.
-      const visionKey =
-        docAiCfg.visionApiKey?.trim() || docAiCfg.apiKey?.trim();
-
-      if (!visionKey) {
-        // No API key configured — show a helpful error
+      if (!llamaCfg.apiKey) {
         setScanStatus(
-          "No Google Cloud Vision API key configured. Go to Settings → Document AI and paste your API key.",
+          "No Groq API key configured. Go to Settings → AI Engine and paste your Groq API key.",
         );
         setScanProgress(0);
         const today = new Date().toISOString().split("T")[0];
@@ -1037,16 +1016,12 @@ export default function OcrScanModal({
         return;
       }
 
-      setScanStatus("Preparing image for Google Cloud Vision…");
-      setScanProgress(10);
-
-      // ── Convert file to base64 for Vision API ─────────────────────
+      // ── Convert file to base64 ─────────────────────────────────────
       let base64Image = "";
-      let _mimeType = file.type;
+      let mimeType = file.type || "image/jpeg";
 
       if (file.type === "application/pdf") {
-        // Render first PDF page to image, then send as JPEG
-        setScanStatus("Rendering PDF page…");
+        setScanStatus("Rendering PDF page for Llama Vision…");
         setScanProgress(15);
         try {
           const pdfjsLib = (await import(
@@ -1082,8 +1057,8 @@ export default function OcrScanModal({
           const ctx = canvas.getContext("2d");
           if (ctx) {
             await page.render({ canvasContext: ctx, viewport }).promise;
-            base64Image = canvas.toDataURL("image/jpeg", 0.95).split(",")[1];
-            _mimeType = "image/jpeg";
+            base64Image = canvas.toDataURL("image/jpeg", 0.92).split(",")[1];
+            mimeType = "image/jpeg";
             canvas.toBlob(
               (blob) => {
                 if (blob) {
@@ -1092,22 +1067,21 @@ export default function OcrScanModal({
                 }
               },
               "image/jpeg",
-              0.95,
+              0.92,
             );
           }
         } catch (pdfErr) {
           console.warn("PDF render failed:", pdfErr);
-          // Fallback: send raw PDF bytes
           const arrayBuffer = await file.arrayBuffer();
-          base64Image = btoa(
-            String.fromCharCode(
-              ...new Uint8Array(arrayBuffer).slice(0, 10485760),
-            ),
-          );
+          const bytes = new Uint8Array(arrayBuffer);
+          let binary = "";
+          for (let i = 0; i < bytes.byteLength; i++)
+            binary += String.fromCharCode(bytes[i]);
+          base64Image = btoa(binary);
+          mimeType = "image/jpeg";
         }
       } else {
-        // Image file: read as base64
-        setScanStatus("Encoding image…");
+        setScanStatus("Encoding image for Llama Vision…");
         setScanProgress(15);
         const arrayBuffer = await file.arrayBuffer();
         const bytes = new Uint8Array(arrayBuffer);
@@ -1115,89 +1089,245 @@ export default function OcrScanModal({
         for (let i = 0; i < bytes.byteLength; i++)
           binary += String.fromCharCode(bytes[i]);
         base64Image = btoa(binary);
+        mimeType = file.type;
       }
 
-      setScanProgress(25);
-      setScanStatus("Sending to Google Cloud Vision API…");
-
-      // ── Call Google Cloud Vision TEXT_DETECTION ────────────────────
-      // This API works directly from browser with an API key (no CORS block)
-      const visionResponse = await fetch(
-        `https://vision.googleapis.com/v1/images:annotate?key=${visionKey}`,
-        {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
-            requests: [
-              {
-                image: { content: base64Image },
-                features: [{ type: "DOCUMENT_TEXT_DETECTION", maxResults: 1 }],
-                imageContext: {
-                  languageHints: ["en", "hi"],
-                },
-              },
-            ],
-          }),
-        },
+      setScanProgress(30);
+      const visionModel = getLlamaVisionModel();
+      setScanStatus(
+        `Sending invoice to Llama Vision (${visionModel.split("/").pop()?.split("-").slice(0, 3).join("-")})…`,
       );
 
-      setScanProgress(70);
-      setScanStatus("Processing Vision API response…");
+      // ── Llama Vision Prompt — extract structured invoice JSON directly ──
+      const ocrPrompt = `You are an expert Indian GST invoice data extractor. Carefully read every part of this invoice image and extract ALL fields into the exact JSON format below.
 
-      if (!visionResponse.ok) {
-        const errBody = (await visionResponse.json().catch(() => ({}))) as {
-          error?: { message?: string };
-        };
-        const errMsg =
-          errBody?.error?.message ?? `HTTP ${visionResponse.status}`;
-        throw new Error(`Google Cloud Vision API error: ${errMsg}`);
-      }
+IMPORTANT RULES:
+- Extract EVERY line item you see — if there are 10 products, return 10 items
+- invoiceDate must be in YYYY-MM-DD format
+- GSTIN is a 15-character alphanumeric code (e.g. 27AABCT1332L1ZX)
+- totalAmount must be the final grand total (largest amount on the invoice)
+- For GST: if intra-state → cgstRate+sgstRate, if inter-state → igstRate
+- Amounts must be numbers as strings (no ₹ symbol, no commas)
+- If a field is not found, use empty string ""
+- For items: extract the exact product name, HSN code, quantity, unit (Pcs/KG/MTR etc), rate per unit, discount%, GST rate%, and line total
 
-      const visionData = (await visionResponse.json()) as {
-        responses: Array<{
-          fullTextAnnotation?: { text: string };
-          textAnnotations?: Array<{ description: string }>;
-          error?: { message: string };
-        }>;
-      };
+Return ONLY this JSON, no explanation, no markdown:
+{
+  "invoiceNumber": "",
+  "invoiceDate": "YYYY-MM-DD",
+  "sellerName": "",
+  "sellerGstin": "",
+  "sellerAddress": "",
+  "sellerState": "",
+  "sellerStateCode": "",
+  "sellerEmail": "",
+  "customerName": "",
+  "customerGstin": "",
+  "customerAddress": "",
+  "customerState": "",
+  "customerStateCode": "",
+  "customerPhone": "",
+  "customerEmail": "",
+  "deliveryNote": "",
+  "modeOfPayment": "",
+  "referenceNo": "",
+  "buyerOrderNo": "",
+  "destination": "",
+  "termsOfDelivery": "",
+  "items": [
+    {
+      "srNo": "1",
+      "productName": "",
+      "hsnSac": "",
+      "qty": "",
+      "unit": "",
+      "rate": "",
+      "discountPct": "0",
+      "gstRate": "",
+      "amount": ""
+    }
+  ],
+  "taxableValue": "",
+  "cgstRate": "",
+  "cgstAmount": "",
+  "sgstRate": "",
+  "sgstAmount": "",
+  "igstRate": "",
+  "igstAmount": "",
+  "roundOff": "0",
+  "totalAmount": "",
+  "bankName": "",
+  "bankAccountNo": "",
+  "bankIfscCode": "",
+  "bankBranch": ""
+}`;
 
-      if (visionData.responses?.[0]?.error) {
-        throw new Error(`Vision API: ${visionData.responses[0].error.message}`);
-      }
+      setScanProgress(40);
+      const llamaResult = await callLlamaVision(
+        base64Image,
+        mimeType,
+        ocrPrompt,
+      );
+      setScanProgress(80);
+      setScanStatus("Parsing Llama Vision response…");
 
-      // Prefer fullTextAnnotation (Document Text Detection) over textAnnotations
-      const extractedText =
-        visionData.responses?.[0]?.fullTextAnnotation?.text ??
-        visionData.responses?.[0]?.textAnnotations?.[0]?.description ??
-        "";
-
-      if (!extractedText) {
+      // ── Parse Llama's JSON response ────────────────────────────────
+      // Extract JSON block from response (model may add preamble)
+      const jsonMatch = llamaResult.match(/\{[\s\S]*\}/);
+      if (!jsonMatch) {
         throw new Error(
-          "Vision API returned no text. Ensure the image is clear and readable.",
+          "Llama Vision did not return valid JSON. Try a clearer image.",
         );
       }
 
-      setScanProgress(88);
-      setScanStatus("Parsing GST invoice fields…");
+      let aiData: Record<string, unknown>;
+      try {
+        aiData = JSON.parse(jsonMatch[0]) as Record<string, unknown>;
+      } catch {
+        throw new Error("Failed to parse Llama Vision JSON output. Try again.");
+      }
 
-      const wordCount = extractedText.split(/\s+/).filter(Boolean).length;
-      const parsed = normaliseOcrData(parseInvoiceText(extractedText, []));
+      // ── Map AI response to OcrExtractedData ───────────────────────
+      const aiItems = Array.isArray(aiData.items)
+        ? (aiData.items as Array<Record<string, string>>)
+        : [];
 
-      // Boost confidence for Vision API (it's far more accurate than Tesseract)
-      // Vision DOCUMENT_TEXT_DETECTION is trained for dense documents
-      const visionConfidence = Math.min(95, Math.max(parsed.confidence, 65));
-      parsed.confidence = visionConfidence;
+      const parsed: OcrExtractedData = {
+        sellerName: String(aiData.sellerName ?? ""),
+        sellerGstin: String(aiData.sellerGstin ?? ""),
+        sellerAddress: String(aiData.sellerAddress ?? ""),
+        sellerState: String(aiData.sellerState ?? ""),
+        sellerStateCode: String(aiData.sellerStateCode ?? ""),
+        sellerEmail: String(aiData.sellerEmail ?? ""),
+        customerName: String(aiData.customerName ?? ""),
+        customerGstin: String(aiData.customerGstin ?? ""),
+        customerPhone: String(aiData.customerPhone ?? ""),
+        customerEmail: String(aiData.customerEmail ?? ""),
+        customerAddress: String(aiData.customerAddress ?? ""),
+        customerState: String(aiData.customerState ?? ""),
+        customerStateCode: String(aiData.customerStateCode ?? ""),
+        customerDepartment: String(aiData.customerDepartment ?? ""),
+        invoiceNumber: String(aiData.invoiceNumber ?? ""),
+        invoiceDate: String(
+          aiData.invoiceDate ?? new Date().toISOString().split("T")[0],
+        ),
+        dueDate: String(aiData.dueDate ?? ""),
+        deliveryNote: String(aiData.deliveryNote ?? ""),
+        modeOfPayment: String(aiData.modeOfPayment ?? ""),
+        referenceNo: String(aiData.referenceNo ?? ""),
+        buyerOrderNo: String(aiData.buyerOrderNo ?? ""),
+        buyerOrderDate: String(aiData.buyerOrderDate ?? ""),
+        dispatchDocNo: String(aiData.dispatchDocNo ?? ""),
+        deliveryNoteDate: String(aiData.deliveryNoteDate ?? ""),
+        dispatchedThrough: String(aiData.dispatchedThrough ?? ""),
+        destination: String(aiData.destination ?? ""),
+        termsOfDelivery: String(aiData.termsOfDelivery ?? ""),
+        items:
+          aiItems.length > 0
+            ? aiItems.map((it, i) => ({
+                srNo: String(it.srNo ?? i + 1),
+                productName: String(it.productName ?? ""),
+                hsnSac: String(it.hsnSac ?? ""),
+                qty: String(it.qty ?? "1"),
+                unit: String(it.unit ?? "Pcs"),
+                rateInclTax: "",
+                rate: String(it.rate ?? "0"),
+                discountPct: String(it.discountPct ?? "0"),
+                gstRate: String(it.gstRate ?? "5"),
+                amount: String(it.amount ?? "0"),
+              }))
+            : [
+                {
+                  srNo: "1",
+                  productName: "Item from invoice",
+                  hsnSac: "",
+                  qty: "1",
+                  unit: "Pcs",
+                  rateInclTax: "",
+                  rate: String(aiData.totalAmount ?? "0"),
+                  discountPct: "0",
+                  gstRate: "5",
+                  amount: String(aiData.totalAmount ?? "0"),
+                },
+              ],
+        taxableValue: String(aiData.taxableValue ?? ""),
+        cgstRate: String(aiData.cgstRate ?? ""),
+        cgstAmount: String(aiData.cgstAmount ?? ""),
+        sgstRate: String(aiData.sgstRate ?? ""),
+        sgstAmount: String(aiData.sgstAmount ?? ""),
+        igstRate: String(aiData.igstRate ?? ""),
+        igstAmount: String(aiData.igstAmount ?? ""),
+        roundOff: String(aiData.roundOff ?? "0"),
+        totalAmount: String(aiData.totalAmount ?? ""),
+        amountInWords: "",
+        taxAmountInWords: "",
+        bankName: String(aiData.bankName ?? ""),
+        bankAccountNo: String(aiData.bankAccountNo ?? ""),
+        bankIfscCode: String(aiData.bankIfscCode ?? ""),
+        bankBranch: String(aiData.bankBranch ?? ""),
+        declaration: String(aiData.declaration ?? ""),
+        confidence: 0,
+      };
+
+      // ── Auto-derive state from GSTIN if not found ─────────────────
+      if (!parsed.sellerState && parsed.sellerGstin.length >= 2) {
+        const code = parsed.sellerGstin.substring(0, 2);
+        parsed.sellerState = STATE_CODE_MAP[code] ?? "";
+        parsed.sellerStateCode = code;
+      }
+      if (!parsed.customerState && parsed.customerGstin.length >= 2) {
+        const code = parsed.customerGstin.substring(0, 2);
+        parsed.customerState = STATE_CODE_MAP[code] ?? "";
+        parsed.customerStateCode = code;
+      }
+
+      // ── Calculate semantic confidence score ───────────────────────
+      let score = 0;
+      if (parsed.invoiceNumber) score += 15;
+      if (
+        parsed.invoiceDate &&
+        parsed.invoiceDate !== new Date().toISOString().split("T")[0]
+      )
+        score += 10;
+      if (parsed.sellerGstin.length === 15) score += 15;
+      if (parsed.customerName) score += 10;
+      if (parsed.items.length > 1) score += 15;
+      if (parsed.items.length > 0 && parsed.items[0].hsnSac) score += 10;
+      if (parsed.totalAmount && Number.parseFloat(parsed.totalAmount) > 0)
+        score += 15;
+      if (parsed.bankIfscCode) score += 5;
+      if (
+        Number.parseFloat(parsed.cgstAmount) > 0 ||
+        Number.parseFloat(parsed.igstAmount) > 0
+      )
+        score += 5;
+      // Llama Vision base boost — it reads images directly, much more accurate than regex
+      score = Math.min(95, score + 15);
+      parsed.confidence = Math.max(10, score);
+
+      const normalised = normaliseOcrData(parsed);
 
       setScanProgress(100);
       setScanStatus(
-        `Done! Google Vision extracted ${wordCount} words at ${visionConfidence}% confidence. Review all fields.`,
+        `Done! Llama Vision extracted ${normalised.items.length} line item(s) at ${normalised.confidence}% confidence. Review all fields.`,
       );
-      setExtractedData(parsed);
+      setExtractedData(normalised);
       setTimeout(() => setStep("review"), 400);
     } catch (err) {
       console.error("OCR error:", err);
-      const msg = err instanceof Error ? err.message : "Unknown error";
-      setScanStatus(`OCR failed: ${msg}`);
+      const rawMsg = err instanceof Error ? err.message : "Unknown error";
+      let userMsg = rawMsg;
+      if (rawMsg === "NO_API_KEY")
+        userMsg =
+          "No Groq API key. Go to Settings → AI Engine to add your key.";
+      else if (rawMsg === "INVALID_API_KEY")
+        userMsg = "Invalid Groq API key. Check Settings → AI Engine.";
+      else if (rawMsg === "RATE_LIMIT")
+        userMsg = "Groq rate limit reached. Wait 30 seconds and try again.";
+      else if (rawMsg.startsWith("BAD_REQUEST"))
+        userMsg =
+          "This image format is not supported by Llama Vision. Try a JPEG or PNG.";
+      setScanStatus(`OCR failed: ${userMsg}`);
       const today = new Date().toISOString().split("T")[0];
       const fallback = parseInvoiceText(`Invoice No.\nDate: ${today}\n`, []);
       fallback.invoiceDate = today;
@@ -1433,10 +1563,10 @@ export default function OcrScanModal({
               <div className="flex items-start gap-2 p-3 rounded-lg bg-info/5 border border-info/20">
                 <Info className="w-4 h-4 text-info mt-0.5 flex-shrink-0" />
                 <p className="text-xs text-muted-foreground">
-                  Powered by Google Cloud Vision AI. Make sure your API key is
-                  configured in{" "}
+                  Powered by Google Cloud Vision for text extraction + Llama AI
+                  for smart field mapping. Make sure your keys are configured in{" "}
                   <strong className="text-foreground">
-                    Settings → Document AI
+                    Settings → Invoice OCR &amp; AI Analysis
                   </strong>
                   . High-resolution scans (300 DPI+) give best results.
                 </p>
@@ -1466,7 +1596,10 @@ export default function OcrScanModal({
               <div className="flex items-center gap-2">
                 <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-semibold bg-primary/10 text-primary border border-primary/20">
                   <span className="w-2 h-2 rounded-full bg-primary animate-pulse" />
-                  Google Cloud Vision AI
+                  {(localStorage.getItem("lekhya_llama_api_key") ?? "") &&
+                  localStorage.getItem("lekhya_ocr_llama_enhance") !== "false"
+                    ? "Google Vision + Llama AI"
+                    : "Google Cloud Vision AI"}
                 </span>
               </div>
               <div className="text-center w-full max-w-sm">
@@ -1502,7 +1635,11 @@ export default function OcrScanModal({
                   {/* Engine badge */}
                   <div className="flex items-center gap-2">
                     <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-[11px] font-semibold bg-primary/10 text-primary border border-primary/20">
-                      Google Cloud Vision AI
+                      {(localStorage.getItem("lekhya_llama_api_key") ?? "") &&
+                      localStorage.getItem("lekhya_ocr_llama_enhance") !==
+                        "false"
+                        ? "Google Vision + Llama AI"
+                        : "Google Cloud Vision AI"}
                     </span>
                   </div>
                   <AccuracyMeter confidence={extractedData.confidence} />

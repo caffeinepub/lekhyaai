@@ -1028,6 +1028,132 @@ function loadImageAsCanvas(file: File): Promise<HTMLCanvasElement> {
 
 // ─── Main Modal ────────────────────────────────────────────────────
 
+// ─── Load Document AI config from localStorage ─────────────────────
+function getDocAiConfig(): {
+  projectId: string;
+  location: string;
+  processorId: string;
+  apiKey: string;
+} | null {
+  try {
+    const s = localStorage.getItem("docai_config");
+    if (!s) return null;
+    const cfg = JSON.parse(s) as {
+      projectId: string;
+      location: string;
+      processorId: string;
+      apiKey: string;
+    };
+    if (cfg.projectId && cfg.location && cfg.processorId && cfg.apiKey)
+      return cfg;
+    return null;
+  } catch {
+    return null;
+  }
+}
+
+// ─── Map Document AI entity types to OcrExtractedData fields ───────
+function mapDocAiEntities(
+  entities: Array<{ type: string; mentionText?: string; confidence?: number }>,
+  lineItems: Array<
+    Array<{ type: string; mentionText?: string; confidence?: number }>
+  >,
+): OcrExtractedData {
+  function getFirst(type: string): string {
+    return entities.find((e) => e.type === type)?.mentionText?.trim() ?? "";
+  }
+
+  const invoiceNumber = getFirst("invoice_id");
+  const invoiceDateRaw = getFirst("invoice_date");
+  const dueDateRaw = getFirst("due_date");
+  const sellerName = getFirst("supplier_name");
+  const sellerGstin = getFirst("supplier_tax_id");
+  const customerName = getFirst("receiver_name");
+  const customerGstin = getFirst("receiver_tax_id");
+  const taxableValue = getFirst("net_amount");
+  const totalAmount = getFirst("total_amount");
+
+  const sellerState = sellerGstin
+    ? (STATE_CODE_MAP[sellerGstin.substring(0, 2)] ?? "")
+    : "";
+  const customerState = customerGstin
+    ? (STATE_CODE_MAP[customerGstin.substring(0, 2)] ?? "")
+    : "";
+
+  // Map line items
+  const items: OcrExtractedData["items"] = lineItems.map((lineProps, idx) => {
+    function getLineProp(type: string): string {
+      return lineProps.find((p) => p.type === type)?.mentionText?.trim() ?? "";
+    }
+    return {
+      srNo: String(idx + 1),
+      productName: getLineProp("line_item/description"),
+      hsnSac: "",
+      qty: getLineProp("line_item/quantity"),
+      unit: "Pcs",
+      rateInclTax: "",
+      rate: getLineProp("line_item/unit_price"),
+      discountPct: "0",
+      gstRate: "5",
+      amount: getLineProp("line_item/amount"),
+    };
+  });
+
+  const avgConfidence = Math.round(
+    (entities.reduce((s, e) => s + (e.confidence ?? 0.9), 0) /
+      Math.max(entities.length, 1)) *
+      100,
+  );
+
+  return {
+    sellerName,
+    sellerGstin,
+    sellerAddress: "",
+    sellerState,
+    sellerStateCode: sellerGstin.substring(0, 2),
+    sellerEmail: "",
+    customerName,
+    customerGstin,
+    customerPhone: "",
+    customerEmail: "",
+    customerAddress: "",
+    customerState,
+    customerStateCode: customerGstin.substring(0, 2),
+    customerDepartment: "",
+    invoiceNumber,
+    invoiceDate: normaliseDate(invoiceDateRaw),
+    dueDate: normaliseDate(dueDateRaw),
+    deliveryNote: "",
+    modeOfPayment: "",
+    referenceNo: "",
+    buyerOrderNo: "",
+    buyerOrderDate: "",
+    dispatchDocNo: "",
+    deliveryNoteDate: "",
+    dispatchedThrough: "",
+    destination: "",
+    termsOfDelivery: "",
+    items: items.length > 0 ? items : [],
+    taxableValue: taxableValue.replace(/[₹,]/g, ""),
+    cgstRate: "2.5",
+    cgstAmount: "",
+    sgstRate: "2.5",
+    sgstAmount: "",
+    igstRate: "0",
+    igstAmount: "",
+    roundOff: "0",
+    totalAmount: totalAmount.replace(/[₹,]/g, ""),
+    amountInWords: "",
+    taxAmountInWords: "",
+    bankName: "",
+    bankAccountNo: "",
+    bankIfscCode: "",
+    bankBranch: "",
+    declaration: "",
+    confidence: Math.min(95, Math.max(60, avgConfidence)),
+  };
+}
+
 export default function OcrScanModal({
   open,
   onClose,
@@ -1036,6 +1162,9 @@ export default function OcrScanModal({
   const [step, setStep] = useState<Step>("upload");
   const [scanProgress, setScanProgress] = useState(0);
   const [scanStatus, setScanStatus] = useState("Initialising OCR engine…");
+  const [ocrEngine, setOcrEngine] = useState<"docai" | "tesseract">(
+    "tesseract",
+  );
   const [extractedData, setExtractedData] = useState<OcrExtractedData | null>(
     null,
   );
@@ -1053,6 +1182,7 @@ export default function OcrScanModal({
     setStep("upload");
     setScanProgress(0);
     setScanStatus("Initialising OCR engine…");
+    setOcrEngine("tesseract");
     setExtractedData(null);
     setNewProducts([]);
     setIsDragging(false);
@@ -1074,6 +1204,94 @@ export default function OcrScanModal({
 
     const url = URL.createObjectURL(file);
     setPreviewUrl(url);
+
+    // ── Try Google Document AI first if configured ─────────────────
+    const docAiCfg = getDocAiConfig();
+    if (docAiCfg) {
+      try {
+        setScanStatus("Sending to Google Document AI…");
+        setScanProgress(20);
+        setOcrEngine("docai");
+
+        // Convert file to base64
+        const arrayBuffer = await file.arrayBuffer();
+        const bytes = new Uint8Array(arrayBuffer);
+        let binary = "";
+        for (let i = 0; i < bytes.byteLength; i++) {
+          binary += String.fromCharCode(bytes[i]);
+        }
+        const base64Content = btoa(binary);
+        const mimeType =
+          file.type === "application/pdf" ? "application/pdf" : "image/png";
+
+        const endpoint = `https://documentai.googleapis.com/v1/projects/${docAiCfg.projectId}/locations/${docAiCfg.location}/processors/${docAiCfg.processorId}:process?key=${docAiCfg.apiKey}`;
+
+        setScanProgress(40);
+        setScanStatus("Processing with Document AI…");
+
+        const response = await fetch(endpoint, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            rawDocument: { content: base64Content, mimeType },
+          }),
+        });
+
+        if (!response.ok) {
+          throw new Error(
+            `Document AI error: ${response.status} ${response.statusText}`,
+          );
+        }
+
+        setScanProgress(75);
+        setScanStatus("Parsing Document AI response…");
+
+        const result = (await response.json()) as {
+          document?: {
+            entities?: Array<{
+              type: string;
+              mentionText?: string;
+              confidence?: number;
+              properties?: Array<{
+                type: string;
+                mentionText?: string;
+                confidence?: number;
+              }>;
+            }>;
+          };
+        };
+
+        const entities = result.document?.entities ?? [];
+
+        // Separate top-level entities from line_item sub-entities
+        const topLevel = entities.filter(
+          (e) => !e.type.startsWith("line_item"),
+        );
+        const lineItemGroups = entities
+          .filter((e) => e.type === "line_item")
+          .map((li) => li.properties ?? []);
+
+        const parsed = normaliseOcrData(
+          mapDocAiEntities(topLevel, lineItemGroups),
+        );
+
+        setScanProgress(100);
+        setScanStatus(
+          `Document AI extracted data at ${parsed.confidence}% confidence. Review all fields.`,
+        );
+        setExtractedData(parsed);
+        setTimeout(() => setStep("review"), 400);
+        return; // Done! Skip Tesseract
+      } catch (docAiErr) {
+        console.warn(
+          "Document AI failed, falling back to Tesseract:",
+          docAiErr,
+        );
+        setScanStatus("Document AI failed — falling back to Tesseract OCR…");
+        setOcrEngine("tesseract");
+        // Fall through to Tesseract
+      }
+    }
 
     try {
       setScanStatus("Preparing image for OCR…");
@@ -1161,19 +1379,12 @@ export default function OcrScanModal({
       ) => Promise<TesseractWorker>;
 
       let createWorker: CreateWorkerFn;
-      try {
-        const mod = (await import("tesseract.js")) as unknown as {
-          createWorker: CreateWorkerFn;
-        };
-        createWorker = mod.createWorker;
-      } catch {
-        // Fallback to CDN if npm package unavailable
-        const mod = (await import(
-          // @ts-expect-error CDN fallback
-          /* @vite-ignore */ "https://cdn.jsdelivr.net/npm/tesseract.js@5/dist/tesseract.esm.min.js"
-        )) as { createWorker: CreateWorkerFn };
-        createWorker = mod.createWorker;
-      }
+      // Load Tesseract from CDN (avoids bundling the large model files)
+      const mod = (await import(
+        // @ts-expect-error CDN URL — not a module path
+        /* @vite-ignore */ "https://cdn.jsdelivr.net/npm/tesseract.js@5/dist/tesseract.esm.min.js"
+      )) as { createWorker: CreateWorkerFn };
+      createWorker = mod.createWorker;
 
       const worker = await createWorker("eng", 1, {
         logger: (m: { status: string; progress: number }) => {
@@ -1489,6 +1700,20 @@ export default function OcrScanModal({
                   <ScanLine className="w-9 h-9 text-primary" />
                 </div>
               </div>
+              {/* Engine badge */}
+              <div className="flex items-center gap-2">
+                {ocrEngine === "docai" ? (
+                  <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-semibold bg-blue-500/10 text-blue-600 border border-blue-500/20">
+                    <span className="w-2 h-2 rounded-full bg-blue-500 animate-pulse" />
+                    Google Document AI
+                  </span>
+                ) : (
+                  <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-semibold bg-muted text-muted-foreground border border-border">
+                    <span className="w-2 h-2 rounded-full bg-muted-foreground/60" />
+                    Tesseract.js (Local)
+                  </span>
+                )}
+              </div>
               <div className="text-center w-full max-w-sm">
                 <p className="font-semibold text-foreground text-base mb-1">
                   Scanning invoice…
@@ -1502,8 +1727,9 @@ export default function OcrScanModal({
                 </p>
               </div>
               <p className="text-xs text-muted-foreground text-center max-w-xs">
-                First run downloads the Tesseract language model (~10 MB).
-                Subsequent scans are faster.
+                {ocrEngine === "docai"
+                  ? "Document AI processes invoices in the cloud with high accuracy."
+                  : "First run downloads the Tesseract language model (~10 MB). Subsequent scans are faster."}
               </p>
             </motion.div>
           )}
@@ -1518,7 +1744,19 @@ export default function OcrScanModal({
             >
               {/* Accuracy + preview toggle */}
               <div className="flex gap-3 items-start">
-                <div className="flex-1">
+                <div className="flex-1 space-y-2">
+                  {/* Engine badge */}
+                  <div className="flex items-center gap-2">
+                    {ocrEngine === "docai" ? (
+                      <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-[11px] font-semibold bg-blue-500/10 text-blue-600 border border-blue-500/20">
+                        Google Document AI
+                      </span>
+                    ) : (
+                      <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-[11px] font-semibold bg-muted text-muted-foreground border border-border">
+                        Tesseract.js (Local)
+                      </span>
+                    )}
+                  </div>
                   <AccuracyMeter confidence={extractedData.confidence} />
                 </div>
                 {previewUrl && (

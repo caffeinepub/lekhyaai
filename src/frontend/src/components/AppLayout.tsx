@@ -9,10 +9,12 @@ import {
 import { cn } from "@/lib/utils";
 import { Link, Outlet, useLocation } from "@tanstack/react-router";
 import {
+  ArrowLeftRight,
   BarChart3,
   BookOpen,
   Bot,
   Building2,
+  CalendarCheck,
   ChevronDown,
   CreditCard,
   FileBarChart,
@@ -54,6 +56,8 @@ const navItems = [
   { path: "/petty-cash", icon: Wallet, label: "Petty Cash" },
   { path: "/ledger", icon: BookOpen, label: "Ledger" },
   { path: "/gst-reports", icon: BarChart3, label: "GST Reports" },
+  { path: "/gst-filing", icon: CalendarCheck, label: "GST Filing" },
+  { path: "/b2b-reconciliation", icon: ArrowLeftRight, label: "B2B Reconcile" },
   { path: "/reports/pl", icon: FileText, label: "P&L Report" },
   {
     path: "/reports/balance-sheet",

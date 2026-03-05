@@ -36,6 +36,10 @@ const CompanyCategoriesPage = lazy(
   () => import("./pages/CompanyCategoriesPage"),
 );
 const TallyImportPage = lazy(() => import("./pages/TallyImportPage"));
+const GstFilingPage = lazy(() => import("./pages/GstFilingPage"));
+const B2bReconciliationPage = lazy(
+  () => import("./pages/B2bReconciliationPage"),
+);
 
 function PageLoader() {
   return (
@@ -228,6 +232,26 @@ const tallyImportRoute = createRoute({
   ),
 });
 
+const gstFilingRoute = createRoute({
+  getParentRoute: () => layoutRoute,
+  path: "/gst-filing",
+  component: () => (
+    <Suspense fallback={<PageLoader />}>
+      <GstFilingPage />
+    </Suspense>
+  ),
+});
+
+const b2bReconciliationRoute = createRoute({
+  getParentRoute: () => layoutRoute,
+  path: "/b2b-reconciliation",
+  component: () => (
+    <Suspense fallback={<PageLoader />}>
+      <B2bReconciliationPage />
+    </Suspense>
+  ),
+});
+
 const routeTree = rootRoute.addChildren([
   layoutRoute.addChildren([
     dashboardRoute,
@@ -248,6 +272,8 @@ const routeTree = rootRoute.addChildren([
     plReportRoute,
     balanceSheetRoute,
     tallyImportRoute,
+    gstFilingRoute,
+    b2bReconciliationRoute,
   ]),
 ]);
 

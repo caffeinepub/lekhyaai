@@ -20,6 +20,7 @@ import {
   CheckCircle,
   Eye,
   EyeOff,
+  FileSearch,
   ImageIcon,
   Loader2,
   Palette,
@@ -111,6 +112,46 @@ export default function SettingsPage() {
     } finally {
       setTestingConn(false);
     }
+  }
+
+  // ─── Document AI Config ───────────────────────────────────────────
+  const [docAiCfg, setDocAiCfg] = useState(() => {
+    try {
+      const s = localStorage.getItem("docai_config");
+      return s
+        ? (JSON.parse(s) as {
+            projectId: string;
+            location: string;
+            processorId: string;
+            apiKey: string;
+          })
+        : { projectId: "", location: "us", processorId: "", apiKey: "" };
+    } catch {
+      return { projectId: "", location: "us", processorId: "", apiKey: "" };
+    }
+  });
+  const [showDocApiKey, setShowDocApiKey] = useState(false);
+
+  const docAiActive =
+    !!docAiCfg.projectId &&
+    !!docAiCfg.location &&
+    !!docAiCfg.processorId &&
+    !!docAiCfg.apiKey;
+
+  function handleSaveDocAi() {
+    localStorage.setItem("docai_config", JSON.stringify(docAiCfg));
+    toast.success("Document AI settings saved!");
+  }
+
+  function handleClearDocAi() {
+    localStorage.removeItem("docai_config");
+    setDocAiCfg({
+      projectId: "",
+      location: "us",
+      processorId: "",
+      apiKey: "",
+    });
+    toast.success("Document AI credentials cleared.");
   }
 
   // ─── Business Category ────────────────────────────────────────────
@@ -937,6 +978,137 @@ export default function SettingsPage() {
               Connection failed. Get your free key at console.groq.com
             </div>
           )}
+        </div>
+      </motion.div>
+
+      {/* ─── Document AI (OCR) ─── */}
+      <motion.div
+        initial={{ opacity: 0, y: 12 }}
+        animate={{ opacity: 1, y: 0 }}
+        transition={{ delay: 0.45 }}
+        className="bg-card rounded-xl shadow-card border border-border p-6 mb-6"
+      >
+        <div className="flex items-center gap-3 mb-5">
+          <div className="w-10 h-10 rounded-xl bg-primary/10 flex items-center justify-center">
+            <FileSearch className="w-5 h-5 text-primary" />
+          </div>
+          <div className="flex-1">
+            <div className="flex items-center gap-2 flex-wrap">
+              <h3 className="font-semibold text-foreground">
+                Google Document AI (Invoice OCR)
+              </h3>
+              {docAiActive ? (
+                <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[11px] font-medium bg-green-500/10 text-green-600 border border-green-500/20">
+                  <CheckCircle className="w-3 h-3" />
+                  Document AI Active
+                </span>
+              ) : (
+                <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[11px] font-medium bg-muted text-muted-foreground border border-border">
+                  Using Tesseract.js (local)
+                </span>
+              )}
+            </div>
+            <p className="text-xs text-muted-foreground mt-0.5">
+              For higher OCR accuracy on invoices. Get credentials at{" "}
+              <a
+                href="https://console.cloud.google.com"
+                target="_blank"
+                rel="noopener noreferrer"
+                className="text-primary underline"
+              >
+                console.cloud.google.com
+              </a>
+            </p>
+          </div>
+        </div>
+
+        <div className="space-y-4">
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+            <div className="space-y-1.5">
+              <Label>Project ID</Label>
+              <Input
+                data-ocid="settings.docai_project_id.input"
+                value={docAiCfg.projectId}
+                onChange={(e) =>
+                  setDocAiCfg((p) => ({ ...p, projectId: e.target.value }))
+                }
+                placeholder="my-gcp-project"
+              />
+            </div>
+            <div className="space-y-1.5">
+              <Label>Location</Label>
+              <Input
+                data-ocid="settings.docai_location.input"
+                value={docAiCfg.location}
+                onChange={(e) =>
+                  setDocAiCfg((p) => ({ ...p, location: e.target.value }))
+                }
+                placeholder="us"
+              />
+            </div>
+          </div>
+
+          <div className="space-y-1.5">
+            <Label>Processor ID</Label>
+            <Input
+              data-ocid="settings.docai_processor_id.input"
+              value={docAiCfg.processorId}
+              onChange={(e) =>
+                setDocAiCfg((p) => ({ ...p, processorId: e.target.value }))
+              }
+              placeholder="xxxxxxxxxxxxxxxx"
+              className="font-mono"
+            />
+          </div>
+
+          <div className="space-y-1.5">
+            <Label>API Key</Label>
+            <div className="relative">
+              <Input
+                data-ocid="settings.docai_api_key.input"
+                type={showDocApiKey ? "text" : "password"}
+                value={docAiCfg.apiKey}
+                onChange={(e) =>
+                  setDocAiCfg((p) => ({ ...p, apiKey: e.target.value }))
+                }
+                placeholder="AIza…"
+                className="pr-10 font-mono text-sm"
+              />
+              <button
+                type="button"
+                onClick={() => setShowDocApiKey((p) => !p)}
+                className="absolute right-3 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground"
+              >
+                {showDocApiKey ? (
+                  <EyeOff className="w-4 h-4" />
+                ) : (
+                  <Eye className="w-4 h-4" />
+                )}
+              </button>
+            </div>
+          </div>
+
+          <div className="flex gap-3 flex-wrap">
+            <Button
+              type="button"
+              data-ocid="settings.docai_save.button"
+              onClick={handleSaveDocAi}
+              className="bg-primary text-primary-foreground hover:bg-primary/90 gap-2"
+            >
+              <Save className="w-4 h-4" /> Save Document AI Settings
+            </Button>
+            {docAiActive && (
+              <Button
+                type="button"
+                variant="outline"
+                data-ocid="settings.docai_clear.button"
+                onClick={handleClearDocAi}
+                className="gap-2 text-destructive hover:text-destructive hover:bg-destructive/10"
+              >
+                <X className="w-4 h-4" /> Clear Credentials
+              </Button>
+            )}
+          </div>
         </div>
       </motion.div>
 

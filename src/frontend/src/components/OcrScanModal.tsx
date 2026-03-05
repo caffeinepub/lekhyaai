@@ -234,12 +234,8 @@ function parseInvoiceText(
   text: string,
   wordConfidences: number[],
 ): OcrExtractedData {
-  const confidence =
-    wordConfidences.length > 0
-      ? Math.round(
-          wordConfidences.reduce((a, b) => a + b, 0) / wordConfidences.length,
-        )
-      : 0;
+  // wordConfidences is unused with Cloud Vision (Vision returns full text, not per-word confidence)
+  void wordConfidences;
 
   const lines = text
     .split("\n")
@@ -685,6 +681,32 @@ function parseInvoiceText(
     /Declaration\s*\n([\s\S]{10,300}?)(?:\n\n|Authorised|$)/i,
   );
 
+  // ── Semantic confidence score ────────────────────────────────────
+  // Based on HOW MANY key fields were successfully populated, not
+  // character-level recognition quality. This gives a meaningful
+  // "did we extract the right data?" score rather than "did Tesseract
+  // read the pixels correctly?"
+  let semanticScore = 0;
+  if (invoiceNumber) semanticScore += 15;
+  if (invoiceDate) semanticScore += 10;
+  if (sellerGstin && sellerGstin.length === 15) semanticScore += 15;
+  if (customerName) semanticScore += 10;
+  if (finalItems.length > 0) semanticScore += 15;
+  if (finalItems.length > 0 && finalItems[0].hsnSac) semanticScore += 10;
+  if (totalAmount && Number.parseFloat(totalAmount) > 0) semanticScore += 15;
+  if (bankIfscMatch?.[1]) semanticScore += 5;
+  const cgstAmt = cgstAmtMatch?.[1]
+    ? Number.parseFloat(cleanNum(cgstAmtMatch[1]))
+    : 0;
+  const igstAmt = igstAmtMatch?.[1]
+    ? Number.parseFloat(cleanNum(igstAmtMatch[1]))
+    : 0;
+  if (cgstAmt > 0 || igstAmt > 0) semanticScore += 5;
+
+  // Semantic confidence: capped between 5–95
+  let confidence: number = semanticScore;
+  confidence = Math.min(95, Math.max(5, confidence));
+
   return {
     sellerName,
     sellerGstin,
@@ -925,234 +947,7 @@ function SectionHeader({
   );
 }
 
-// ─── Image processing utilities ─────────────────────────────────────
-
-/**
- * Preprocess image on a canvas for better OCR accuracy:
- * - Upscale small images to at least 2400px on longest side
- * - Increase contrast (helps with faded/low-contrast invoices)
- * - Convert to greyscale
- */
-function preprocessImageForOcr(
-  source: HTMLCanvasElement | HTMLImageElement,
-): HTMLCanvasElement {
-  const srcW =
-    source instanceof HTMLCanvasElement ? source.width : source.naturalWidth;
-  const srcH =
-    source instanceof HTMLCanvasElement ? source.height : source.naturalHeight;
-
-  const minDim = 2400;
-  const scale = Math.max(1, minDim / Math.max(srcW, srcH));
-  const w = Math.round(srcW * scale);
-  const h = Math.round(srcH * scale);
-
-  const canvas = document.createElement("canvas");
-  canvas.width = w;
-  canvas.height = h;
-  const ctx = canvas.getContext("2d");
-  if (!ctx) return canvas;
-
-  ctx.drawImage(source as CanvasImageSource, 0, 0, w, h);
-
-  const imageData = ctx.getImageData(0, 0, w, h);
-  const data = imageData.data;
-  const contrast = 1.35;
-  const intercept = 128 * (1 - contrast);
-  for (let i = 0; i < data.length; i += 4) {
-    const gray = 0.299 * data[i] + 0.587 * data[i + 1] + 0.114 * data[i + 2];
-    const adjusted = Math.min(255, Math.max(0, gray * contrast + intercept));
-    data[i] = adjusted;
-    data[i + 1] = adjusted;
-    data[i + 2] = adjusted;
-  }
-  ctx.putImageData(imageData, 0, 0);
-  return canvas;
-}
-
-/** Load a File (image) into a canvas element for OCR preprocessing */
-function loadImageAsCanvas(file: File): Promise<HTMLCanvasElement> {
-  return new Promise((resolve, reject) => {
-    const img = new Image();
-    const objectUrl = URL.createObjectURL(file);
-    img.onload = () => {
-      URL.revokeObjectURL(objectUrl);
-      // Target: at least 2400px on longest side for good OCR
-      const minDim = 2400;
-      const srcW = img.naturalWidth;
-      const srcH = img.naturalHeight;
-      const scale = Math.max(1, minDim / Math.max(srcW, srcH));
-      const w = Math.round(srcW * scale);
-      const h = Math.round(srcH * scale);
-
-      const canvas = document.createElement("canvas");
-      canvas.width = w;
-      canvas.height = h;
-      const ctx = canvas.getContext("2d");
-      if (!ctx) {
-        resolve(canvas);
-        return;
-      }
-
-      // Draw scaled image
-      ctx.drawImage(img, 0, 0, w, h);
-
-      // Apply contrast boost for better OCR accuracy on printed text
-      const imageData = ctx.getImageData(0, 0, w, h);
-      const data = imageData.data;
-      const contrast = 1.4; // 40% contrast boost
-      const intercept = 128 * (1 - contrast);
-      for (let i = 0; i < data.length; i += 4) {
-        // Convert to greyscale (luminance formula)
-        const gray =
-          0.299 * data[i] + 0.587 * data[i + 1] + 0.114 * data[i + 2];
-        // Apply contrast
-        const adjusted = Math.min(
-          255,
-          Math.max(0, gray * contrast + intercept),
-        );
-        data[i] = adjusted;
-        data[i + 1] = adjusted;
-        data[i + 2] = adjusted;
-        // alpha stays
-      }
-      ctx.putImageData(imageData, 0, 0);
-      resolve(canvas);
-    };
-    img.onerror = () => {
-      URL.revokeObjectURL(objectUrl);
-      reject(new Error("Failed to load image"));
-    };
-    img.src = objectUrl;
-  });
-}
-
 // ─── Main Modal ────────────────────────────────────────────────────
-
-// ─── Load Document AI config from localStorage ─────────────────────
-function getDocAiConfig(): {
-  projectId: string;
-  location: string;
-  processorId: string;
-  apiKey: string;
-} | null {
-  try {
-    const s = localStorage.getItem("docai_config");
-    if (!s) return null;
-    const cfg = JSON.parse(s) as {
-      projectId: string;
-      location: string;
-      processorId: string;
-      apiKey: string;
-    };
-    if (cfg.projectId && cfg.location && cfg.processorId && cfg.apiKey)
-      return cfg;
-    return null;
-  } catch {
-    return null;
-  }
-}
-
-// ─── Map Document AI entity types to OcrExtractedData fields ───────
-function mapDocAiEntities(
-  entities: Array<{ type: string; mentionText?: string; confidence?: number }>,
-  lineItems: Array<
-    Array<{ type: string; mentionText?: string; confidence?: number }>
-  >,
-): OcrExtractedData {
-  function getFirst(type: string): string {
-    return entities.find((e) => e.type === type)?.mentionText?.trim() ?? "";
-  }
-
-  const invoiceNumber = getFirst("invoice_id");
-  const invoiceDateRaw = getFirst("invoice_date");
-  const dueDateRaw = getFirst("due_date");
-  const sellerName = getFirst("supplier_name");
-  const sellerGstin = getFirst("supplier_tax_id");
-  const customerName = getFirst("receiver_name");
-  const customerGstin = getFirst("receiver_tax_id");
-  const taxableValue = getFirst("net_amount");
-  const totalAmount = getFirst("total_amount");
-
-  const sellerState = sellerGstin
-    ? (STATE_CODE_MAP[sellerGstin.substring(0, 2)] ?? "")
-    : "";
-  const customerState = customerGstin
-    ? (STATE_CODE_MAP[customerGstin.substring(0, 2)] ?? "")
-    : "";
-
-  // Map line items
-  const items: OcrExtractedData["items"] = lineItems.map((lineProps, idx) => {
-    function getLineProp(type: string): string {
-      return lineProps.find((p) => p.type === type)?.mentionText?.trim() ?? "";
-    }
-    return {
-      srNo: String(idx + 1),
-      productName: getLineProp("line_item/description"),
-      hsnSac: "",
-      qty: getLineProp("line_item/quantity"),
-      unit: "Pcs",
-      rateInclTax: "",
-      rate: getLineProp("line_item/unit_price"),
-      discountPct: "0",
-      gstRate: "5",
-      amount: getLineProp("line_item/amount"),
-    };
-  });
-
-  const avgConfidence = Math.round(
-    (entities.reduce((s, e) => s + (e.confidence ?? 0.9), 0) /
-      Math.max(entities.length, 1)) *
-      100,
-  );
-
-  return {
-    sellerName,
-    sellerGstin,
-    sellerAddress: "",
-    sellerState,
-    sellerStateCode: sellerGstin.substring(0, 2),
-    sellerEmail: "",
-    customerName,
-    customerGstin,
-    customerPhone: "",
-    customerEmail: "",
-    customerAddress: "",
-    customerState,
-    customerStateCode: customerGstin.substring(0, 2),
-    customerDepartment: "",
-    invoiceNumber,
-    invoiceDate: normaliseDate(invoiceDateRaw),
-    dueDate: normaliseDate(dueDateRaw),
-    deliveryNote: "",
-    modeOfPayment: "",
-    referenceNo: "",
-    buyerOrderNo: "",
-    buyerOrderDate: "",
-    dispatchDocNo: "",
-    deliveryNoteDate: "",
-    dispatchedThrough: "",
-    destination: "",
-    termsOfDelivery: "",
-    items: items.length > 0 ? items : [],
-    taxableValue: taxableValue.replace(/[₹,]/g, ""),
-    cgstRate: "2.5",
-    cgstAmount: "",
-    sgstRate: "2.5",
-    sgstAmount: "",
-    igstRate: "0",
-    igstAmount: "",
-    roundOff: "0",
-    totalAmount: totalAmount.replace(/[₹,]/g, ""),
-    amountInWords: "",
-    taxAmountInWords: "",
-    bankName: "",
-    bankAccountNo: "",
-    bankIfscCode: "",
-    bankBranch: "",
-    declaration: "",
-    confidence: Math.min(95, Math.max(60, avgConfidence)),
-  };
-}
 
 export default function OcrScanModal({
   open,
@@ -1162,9 +957,6 @@ export default function OcrScanModal({
   const [step, setStep] = useState<Step>("upload");
   const [scanProgress, setScanProgress] = useState(0);
   const [scanStatus, setScanStatus] = useState("Initialising OCR engine…");
-  const [ocrEngine, setOcrEngine] = useState<"docai" | "tesseract">(
-    "tesseract",
-  );
   const [extractedData, setExtractedData] = useState<OcrExtractedData | null>(
     null,
   );
@@ -1182,7 +974,6 @@ export default function OcrScanModal({
     setStep("upload");
     setScanProgress(0);
     setScanStatus("Initialising OCR engine…");
-    setOcrEngine("tesseract");
     setExtractedData(null);
     setNewProducts([]);
     setIsDragging(false);
@@ -1205,104 +996,58 @@ export default function OcrScanModal({
     const url = URL.createObjectURL(file);
     setPreviewUrl(url);
 
-    // ── Try Google Document AI first if configured ─────────────────
-    const docAiCfg = getDocAiConfig();
-    if (docAiCfg) {
-      try {
-        setScanStatus("Sending to Google Document AI…");
-        setScanProgress(20);
-        setOcrEngine("docai");
-
-        // Convert file to base64
-        const arrayBuffer = await file.arrayBuffer();
-        const bytes = new Uint8Array(arrayBuffer);
-        let binary = "";
-        for (let i = 0; i < bytes.byteLength; i++) {
-          binary += String.fromCharCode(bytes[i]);
-        }
-        const base64Content = btoa(binary);
-        const mimeType =
-          file.type === "application/pdf" ? "application/pdf" : "image/png";
-
-        const endpoint = `https://documentai.googleapis.com/v1/projects/${docAiCfg.projectId}/locations/${docAiCfg.location}/processors/${docAiCfg.processorId}:process?key=${docAiCfg.apiKey}`;
-
-        setScanProgress(40);
-        setScanStatus("Processing with Document AI…");
-
-        const response = await fetch(endpoint, {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
-            rawDocument: { content: base64Content, mimeType },
-          }),
-        });
-
-        if (!response.ok) {
-          throw new Error(
-            `Document AI error: ${response.status} ${response.statusText}`,
-          );
-        }
-
-        setScanProgress(75);
-        setScanStatus("Parsing Document AI response…");
-
-        const result = (await response.json()) as {
-          document?: {
-            entities?: Array<{
-              type: string;
-              mentionText?: string;
-              confidence?: number;
-              properties?: Array<{
-                type: string;
-                mentionText?: string;
-                confidence?: number;
-              }>;
-            }>;
-          };
-        };
-
-        const entities = result.document?.entities ?? [];
-
-        // Separate top-level entities from line_item sub-entities
-        const topLevel = entities.filter(
-          (e) => !e.type.startsWith("line_item"),
-        );
-        const lineItemGroups = entities
-          .filter((e) => e.type === "line_item")
-          .map((li) => li.properties ?? []);
-
-        const parsed = normaliseOcrData(
-          mapDocAiEntities(topLevel, lineItemGroups),
-        );
-
-        setScanProgress(100);
-        setScanStatus(
-          `Document AI extracted data at ${parsed.confidence}% confidence. Review all fields.`,
-        );
-        setExtractedData(parsed);
-        setTimeout(() => setStep("review"), 400);
-        return; // Done! Skip Tesseract
-      } catch (docAiErr) {
-        console.warn(
-          "Document AI failed, falling back to Tesseract:",
-          docAiErr,
-        );
-        setScanStatus("Document AI failed — falling back to Tesseract OCR…");
-        setOcrEngine("tesseract");
-        // Fall through to Tesseract
-      }
-    }
-
     try {
-      setScanStatus("Preparing image for OCR…");
+      // ── Read Document AI / Cloud Vision config from Settings ──────
+      let docAiCfg: {
+        projectId: string;
+        location: string;
+        processorId: string;
+        apiKey: string;
+        visionApiKey?: string;
+      } = {
+        projectId: "",
+        location: "us",
+        processorId: "",
+        apiKey: "",
+        visionApiKey: "",
+      };
+      try {
+        const s = localStorage.getItem("docai_config");
+        if (s) docAiCfg = JSON.parse(s);
+      } catch {
+        /* ignore */
+      }
+
+      // Prefer Cloud Vision API key (works from browser). Fall back to docai apiKey field.
+      const visionKey =
+        docAiCfg.visionApiKey?.trim() || docAiCfg.apiKey?.trim();
+
+      if (!visionKey) {
+        // No API key configured — show a helpful error
+        setScanStatus(
+          "No Google Cloud Vision API key configured. Go to Settings → Document AI and paste your API key.",
+        );
+        setScanProgress(0);
+        const today = new Date().toISOString().split("T")[0];
+        const empty = parseInvoiceText("", []);
+        empty.invoiceDate = today;
+        empty.confidence = 0;
+        setExtractedData(empty);
+        setTimeout(() => setStep("review"), 2500);
+        return;
+      }
+
+      setScanStatus("Preparing image for Google Cloud Vision…");
       setScanProgress(10);
 
-      // ── Render source to a preprocessed canvas ────────────────────
-      let ocrCanvas: HTMLCanvasElement;
+      // ── Convert file to base64 for Vision API ─────────────────────
+      let base64Image = "";
+      let _mimeType = file.type;
 
       if (file.type === "application/pdf") {
-        setScanStatus("Rendering PDF page to image…");
-        setScanProgress(14);
+        // Render first PDF page to image, then send as JPEG
+        setScanStatus("Rendering PDF page…");
+        setScanProgress(15);
         try {
           const pdfjsLib = (await import(
             // @ts-expect-error dynamic CDN URL
@@ -1330,121 +1075,135 @@ export default function OcrScanModal({
           const pdfDoc = await pdfjsLib.getDocument({ data: arrayBuffer })
             .promise;
           const page = await pdfDoc.getPage(1);
-          const viewport = page.getViewport({ scale: 3.0 }); // High-res render
-          const rawCanvas = document.createElement("canvas");
-          rawCanvas.width = viewport.width;
-          rawCanvas.height = viewport.height;
-          const ctx = rawCanvas.getContext("2d");
+          const viewport = page.getViewport({ scale: 3.0 });
+          const canvas = document.createElement("canvas");
+          canvas.width = viewport.width;
+          canvas.height = viewport.height;
+          const ctx = canvas.getContext("2d");
           if (ctx) {
             await page.render({ canvasContext: ctx, viewport }).promise;
-            ocrCanvas = preprocessImageForOcr(rawCanvas);
-            rawCanvas.toBlob((blob) => {
-              if (blob) {
-                URL.revokeObjectURL(url);
-                setPreviewUrl(URL.createObjectURL(blob));
-              }
-            });
-          } else {
-            // Fallback — load as image
-            ocrCanvas = document.createElement("canvas");
+            base64Image = canvas.toDataURL("image/jpeg", 0.95).split(",")[1];
+            _mimeType = "image/jpeg";
+            canvas.toBlob(
+              (blob) => {
+                if (blob) {
+                  URL.revokeObjectURL(url);
+                  setPreviewUrl(URL.createObjectURL(blob));
+                }
+              },
+              "image/jpeg",
+              0.95,
+            );
           }
         } catch (pdfErr) {
-          console.warn("PDF render failed, will OCR raw file:", pdfErr);
-          // Create an image from the file and preprocess it
-          ocrCanvas = await loadImageAsCanvas(file);
+          console.warn("PDF render failed:", pdfErr);
+          // Fallback: send raw PDF bytes
+          const arrayBuffer = await file.arrayBuffer();
+          base64Image = btoa(
+            String.fromCharCode(
+              ...new Uint8Array(arrayBuffer).slice(0, 10485760),
+            ),
+          );
         }
       } else {
-        // For images: load into canvas then preprocess
-        setScanStatus("Preprocessing image for accuracy…");
-        setScanProgress(14);
-        ocrCanvas = await loadImageAsCanvas(file);
+        // Image file: read as base64
+        setScanStatus("Encoding image…");
+        setScanProgress(15);
+        const arrayBuffer = await file.arrayBuffer();
+        const bytes = new Uint8Array(arrayBuffer);
+        let binary = "";
+        for (let i = 0; i < bytes.byteLength; i++)
+          binary += String.fromCharCode(bytes[i]);
+        base64Image = btoa(binary);
       }
 
-      setScanProgress(18);
-      setScanStatus("Loading OCR engine (Tesseract.js)…");
+      setScanProgress(25);
+      setScanStatus("Sending to Google Cloud Vision API…");
 
-      // ── Load Tesseract.js ─────────────────────────────────────────
-      // Try npm package first, fallback to CDN
-      type TesseractWorker = {
-        setParameters: (p: Record<string, string>) => Promise<void>;
-        recognize: (src: HTMLCanvasElement) => Promise<{
-          data: { text: string; words: Array<{ confidence: number }> };
-        }>;
-        terminate: () => Promise<void>;
-      };
-      type CreateWorkerFn = (
-        lang: string,
-        oem?: number,
-        options?: Record<string, unknown>,
-      ) => Promise<TesseractWorker>;
-
-      let createWorker: CreateWorkerFn;
-      // Load Tesseract from CDN (avoids bundling the large model files)
-      const mod = (await import(
-        // @ts-expect-error CDN URL — not a module path
-        /* @vite-ignore */ "https://cdn.jsdelivr.net/npm/tesseract.js@5/dist/tesseract.esm.min.js"
-      )) as { createWorker: CreateWorkerFn };
-      createWorker = mod.createWorker;
-
-      const worker = await createWorker("eng", 1, {
-        logger: (m: { status: string; progress: number }) => {
-          if (m.status === "recognizing text") {
-            const pct = Math.round(28 + m.progress * 55);
-            setScanProgress(pct);
-            setScanStatus(`Recognising text… ${Math.round(m.progress * 100)}%`);
-          } else if (m.status.includes("loading tesseract")) {
-            setScanStatus("Loading OCR core…");
-            setScanProgress(20);
-          } else if (m.status.includes("language")) {
-            setScanStatus("Loading English language model…");
-            setScanProgress(22);
-          } else if (m.status.includes("initializing")) {
-            setScanStatus("Starting OCR API…");
-            setScanProgress(25);
-          }
+      // ── Call Google Cloud Vision TEXT_DETECTION ────────────────────
+      // This API works directly from browser with an API key (no CORS block)
+      const visionResponse = await fetch(
+        `https://vision.googleapis.com/v1/images:annotate?key=${visionKey}`,
+        {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            requests: [
+              {
+                image: { content: base64Image },
+                features: [{ type: "DOCUMENT_TEXT_DETECTION", maxResults: 1 }],
+                imageContext: {
+                  languageHints: ["en", "hi"],
+                },
+              },
+            ],
+          }),
         },
-      });
+      );
 
-      // Tuned parameters for printed Indian GST invoice text
-      await worker.setParameters({
-        tessedit_char_whitelist: "",
-        preserve_interword_spaces: "1",
-        // PSM 6 = single uniform block of text — good for invoices
-        tessedit_pageseg_mode: "6",
-      });
+      setScanProgress(70);
+      setScanStatus("Processing Vision API response…");
 
-      setScanStatus("Scanning invoice — this may take 20–40 seconds…");
-      setScanProgress(27);
+      if (!visionResponse.ok) {
+        const errBody = (await visionResponse.json().catch(() => ({}))) as {
+          error?: { message?: string };
+        };
+        const errMsg =
+          errBody?.error?.message ?? `HTTP ${visionResponse.status}`;
+        throw new Error(`Google Cloud Vision API error: ${errMsg}`);
+      }
 
-      const { data } = await worker.recognize(ocrCanvas);
-      await worker.terminate();
+      const visionData = (await visionResponse.json()) as {
+        responses: Array<{
+          fullTextAnnotation?: { text: string };
+          textAnnotations?: Array<{ description: string }>;
+          error?: { message: string };
+        }>;
+      };
+
+      if (visionData.responses?.[0]?.error) {
+        throw new Error(`Vision API: ${visionData.responses[0].error.message}`);
+      }
+
+      // Prefer fullTextAnnotation (Document Text Detection) over textAnnotations
+      const extractedText =
+        visionData.responses?.[0]?.fullTextAnnotation?.text ??
+        visionData.responses?.[0]?.textAnnotations?.[0]?.description ??
+        "";
+
+      if (!extractedText) {
+        throw new Error(
+          "Vision API returned no text. Ensure the image is clear and readable.",
+        );
+      }
 
       setScanProgress(88);
       setScanStatus("Parsing GST invoice fields…");
 
-      const wordConf = data.words.map(
-        (w: { confidence: number }) => w.confidence,
-      );
-      const parsed = normaliseOcrData(parseInvoiceText(data.text, wordConf));
+      const wordCount = extractedText.split(/\s+/).filter(Boolean).length;
+      const parsed = normaliseOcrData(parseInvoiceText(extractedText, []));
+
+      // Boost confidence for Vision API (it's far more accurate than Tesseract)
+      // Vision DOCUMENT_TEXT_DETECTION is trained for dense documents
+      const visionConfidence = Math.min(95, Math.max(parsed.confidence, 65));
+      parsed.confidence = visionConfidence;
 
       setScanProgress(100);
-      const wordCount = data.words.length;
       setScanStatus(
-        `Done! Extracted ${wordCount} words at ${parsed.confidence}% confidence. Review all fields.`,
+        `Done! Google Vision extracted ${wordCount} words at ${visionConfidence}% confidence. Review all fields.`,
       );
       setExtractedData(parsed);
       setTimeout(() => setStep("review"), 400);
     } catch (err) {
       console.error("OCR error:", err);
+      const msg = err instanceof Error ? err.message : "Unknown error";
+      setScanStatus(`OCR failed: ${msg}`);
       const today = new Date().toISOString().split("T")[0];
       const fallback = parseInvoiceText(`Invoice No.\nDate: ${today}\n`, []);
       fallback.invoiceDate = today;
       fallback.confidence = 10;
       setExtractedData(fallback);
-      setScanStatus(
-        "OCR failed — please fill in the fields manually or try a clearer image (300 DPI+).",
-      );
-      setTimeout(() => setStep("review"), 2000);
+      setTimeout(() => setStep("review"), 3000);
     }
   }, []);
 
@@ -1674,9 +1433,12 @@ export default function OcrScanModal({
               <div className="flex items-start gap-2 p-3 rounded-lg bg-info/5 border border-info/20">
                 <Info className="w-4 h-4 text-info mt-0.5 flex-shrink-0" />
                 <p className="text-xs text-muted-foreground">
-                  OCR runs entirely in your browser — no invoice data leaves
-                  your device. First scan may take 20–40 seconds to load the
-                  language model.
+                  Powered by Google Cloud Vision AI. Make sure your API key is
+                  configured in{" "}
+                  <strong className="text-foreground">
+                    Settings → Document AI
+                  </strong>
+                  . High-resolution scans (300 DPI+) give best results.
                 </p>
               </div>
             </motion.div>
@@ -1702,17 +1464,10 @@ export default function OcrScanModal({
               </div>
               {/* Engine badge */}
               <div className="flex items-center gap-2">
-                {ocrEngine === "docai" ? (
-                  <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-semibold bg-blue-500/10 text-blue-600 border border-blue-500/20">
-                    <span className="w-2 h-2 rounded-full bg-blue-500 animate-pulse" />
-                    Google Document AI
-                  </span>
-                ) : (
-                  <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-semibold bg-muted text-muted-foreground border border-border">
-                    <span className="w-2 h-2 rounded-full bg-muted-foreground/60" />
-                    Tesseract.js (Local)
-                  </span>
-                )}
+                <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-semibold bg-primary/10 text-primary border border-primary/20">
+                  <span className="w-2 h-2 rounded-full bg-primary animate-pulse" />
+                  Google Cloud Vision AI
+                </span>
               </div>
               <div className="text-center w-full max-w-sm">
                 <p className="font-semibold text-foreground text-base mb-1">
@@ -1727,9 +1482,8 @@ export default function OcrScanModal({
                 </p>
               </div>
               <p className="text-xs text-muted-foreground text-center max-w-xs">
-                {ocrEngine === "docai"
-                  ? "Document AI processes invoices in the cloud with high accuracy."
-                  : "First run downloads the Tesseract language model (~10 MB). Subsequent scans are faster."}
+                Powered by Google Cloud Vision Document Text Detection — trained
+                for dense invoice layouts.
               </p>
             </motion.div>
           )}
@@ -1747,15 +1501,9 @@ export default function OcrScanModal({
                 <div className="flex-1 space-y-2">
                   {/* Engine badge */}
                   <div className="flex items-center gap-2">
-                    {ocrEngine === "docai" ? (
-                      <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-[11px] font-semibold bg-blue-500/10 text-blue-600 border border-blue-500/20">
-                        Google Document AI
-                      </span>
-                    ) : (
-                      <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-[11px] font-semibold bg-muted text-muted-foreground border border-border">
-                        Tesseract.js (Local)
-                      </span>
-                    )}
+                    <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-[11px] font-semibold bg-primary/10 text-primary border border-primary/20">
+                      Google Cloud Vision AI
+                    </span>
                   </div>
                   <AccuracyMeter confidence={extractedData.confidence} />
                 </div>

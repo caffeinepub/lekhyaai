@@ -14,6 +14,7 @@ import { Textarea } from "@/components/ui/textarea";
 import { cn } from "@/lib/utils";
 import { useQueryClient } from "@tanstack/react-query";
 import {
+  AlertTriangle,
   Bot,
   Building2,
   Check,
@@ -22,6 +23,7 @@ import {
   EyeOff,
   FileSearch,
   ImageIcon,
+  Info,
   Loader2,
   Palette,
   Plus,
@@ -124,23 +126,39 @@ export default function SettingsPage() {
             location: string;
             processorId: string;
             apiKey: string;
+            visionApiKey: string;
           })
-        : { projectId: "", location: "us", processorId: "", apiKey: "" };
+        : {
+            projectId: "",
+            location: "us",
+            processorId: "",
+            apiKey: "",
+            visionApiKey: "",
+          };
     } catch {
-      return { projectId: "", location: "us", processorId: "", apiKey: "" };
+      return {
+        projectId: "",
+        location: "us",
+        processorId: "",
+        apiKey: "",
+        visionApiKey: "",
+      };
     }
   });
   const [showDocApiKey, setShowDocApiKey] = useState(false);
+  const [showVisionKey, setShowVisionKey] = useState(false);
+  const [testingVision, setTestingVision] = useState(false);
+  const [visionStatus, setVisionStatus] = useState<"idle" | "ok" | "error">(
+    "idle",
+  );
 
-  const docAiActive =
-    !!docAiCfg.projectId &&
-    !!docAiCfg.location &&
-    !!docAiCfg.processorId &&
-    !!docAiCfg.apiKey;
+  const visionKeyActive = !!(
+    docAiCfg.visionApiKey?.trim() || docAiCfg.apiKey?.trim()
+  );
 
   function handleSaveDocAi() {
     localStorage.setItem("docai_config", JSON.stringify(docAiCfg));
-    toast.success("Document AI settings saved!");
+    toast.success("OCR settings saved!");
   }
 
   function handleClearDocAi() {
@@ -150,8 +168,55 @@ export default function SettingsPage() {
       location: "us",
       processorId: "",
       apiKey: "",
+      visionApiKey: "",
     });
-    toast.success("Document AI credentials cleared.");
+    setVisionStatus("idle");
+    toast.success("OCR credentials cleared.");
+  }
+
+  async function handleTestVision() {
+    const key = docAiCfg.visionApiKey?.trim() || docAiCfg.apiKey?.trim();
+    if (!key) {
+      toast.error("Please enter your Cloud Vision API key first.");
+      return;
+    }
+    setTestingVision(true);
+    setVisionStatus("idle");
+    try {
+      // Test with a 1x1 transparent PNG — just validates the API key
+      const tinyPng =
+        "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg==";
+      const res = await fetch(
+        `https://vision.googleapis.com/v1/images:annotate?key=${key}`,
+        {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            requests: [
+              {
+                image: { content: tinyPng },
+                features: [{ type: "TEXT_DETECTION" }],
+              },
+            ],
+          }),
+        },
+      );
+      const data = (await res.json()) as {
+        responses?: Array<{ error?: { message: string } }>;
+      };
+      if (!res.ok || data.responses?.[0]?.error) {
+        const msg = data.responses?.[0]?.error?.message ?? `HTTP ${res.status}`;
+        throw new Error(msg);
+      }
+      setVisionStatus("ok");
+      toast.success("Google Cloud Vision API key is valid!");
+    } catch (err) {
+      setVisionStatus("error");
+      const msg = err instanceof Error ? err.message : "Unknown error";
+      toast.error(`Vision API test failed: ${msg}`);
+    } finally {
+      setTestingVision(false);
+    }
   }
 
   // ─── Business Category ────────────────────────────────────────────
@@ -981,7 +1046,7 @@ export default function SettingsPage() {
         </div>
       </motion.div>
 
-      {/* ─── Document AI (OCR) ─── */}
+      {/* ─── Invoice OCR — Google Cloud Vision ─── */}
       <motion.div
         initial={{ opacity: 0, y: 12 }}
         animate={{ opacity: 1, y: 0 }}
@@ -995,98 +1060,116 @@ export default function SettingsPage() {
           <div className="flex-1">
             <div className="flex items-center gap-2 flex-wrap">
               <h3 className="font-semibold text-foreground">
-                Google Document AI (Invoice OCR)
+                Invoice OCR — Google Cloud Vision
               </h3>
-              {docAiActive ? (
+              {visionKeyActive ? (
                 <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[11px] font-medium bg-green-500/10 text-green-600 border border-green-500/20">
                   <CheckCircle className="w-3 h-3" />
-                  Document AI Active
+                  API key configured
                 </span>
               ) : (
-                <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[11px] font-medium bg-muted text-muted-foreground border border-border">
-                  Using Tesseract.js (local)
+                <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[11px] font-medium bg-amber-500/10 text-amber-600 border border-amber-500/20">
+                  <AlertTriangle className="w-3 h-3" />
+                  API key required
                 </span>
               )}
             </div>
             <p className="text-xs text-muted-foreground mt-0.5">
-              For higher OCR accuracy on invoices. Get credentials at{" "}
-              <a
-                href="https://console.cloud.google.com"
-                target="_blank"
-                rel="noopener noreferrer"
-                className="text-primary underline"
-              >
-                console.cloud.google.com
-              </a>
+              Google Cloud Vision API powers invoice scanning. Works directly
+              from the browser — no proxy needed.
             </p>
           </div>
         </div>
 
+        {/* Setup instructions */}
+        <div className="rounded-lg border border-primary/20 bg-primary/5 p-4 mb-5 text-xs text-muted-foreground">
+          <p className="font-medium text-foreground mb-1.5">
+            How to get your free API key:
+          </p>
+          <ol className="list-decimal list-inside space-y-1">
+            <li>
+              Go to{" "}
+              <a
+                href="https://console.cloud.google.com"
+                target="_blank"
+                rel="noopener noreferrer"
+                className="text-primary underline font-medium"
+              >
+                console.cloud.google.com
+              </a>
+            </li>
+            <li>
+              Create or select a project →{" "}
+              <strong>APIs &amp; Services → Library</strong>
+            </li>
+            <li>
+              Search for <strong>"Cloud Vision API"</strong> and{" "}
+              <strong>Enable</strong> it
+            </li>
+            <li>
+              Go to{" "}
+              <strong>
+                APIs &amp; Services → Credentials → Create API Key
+              </strong>
+            </li>
+            <li>
+              Restrict the key to <strong>Cloud Vision API</strong> only and
+              paste it below
+            </li>
+          </ol>
+          <p className="mt-2 text-muted-foreground">
+            Free tier: 1,000 units/month. Invoice scan = 1 unit.
+          </p>
+        </div>
+
         <div className="space-y-4">
-          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-            <div className="space-y-1.5">
-              <Label>Project ID</Label>
-              <Input
-                data-ocid="settings.docai_project_id.input"
-                value={docAiCfg.projectId}
-                onChange={(e) =>
-                  setDocAiCfg((p) => ({ ...p, projectId: e.target.value }))
-                }
-                placeholder="my-gcp-project"
-              />
-            </div>
-            <div className="space-y-1.5">
-              <Label>Location</Label>
-              <Input
-                data-ocid="settings.docai_location.input"
-                value={docAiCfg.location}
-                onChange={(e) =>
-                  setDocAiCfg((p) => ({ ...p, location: e.target.value }))
-                }
-                placeholder="us"
-              />
-            </div>
-          </div>
-
+          {/* Cloud Vision API Key — primary field */}
           <div className="space-y-1.5">
-            <Label>Processor ID</Label>
-            <Input
-              data-ocid="settings.docai_processor_id.input"
-              value={docAiCfg.processorId}
-              onChange={(e) =>
-                setDocAiCfg((p) => ({ ...p, processorId: e.target.value }))
-              }
-              placeholder="xxxxxxxxxxxxxxxx"
-              className="font-mono"
-            />
-          </div>
-
-          <div className="space-y-1.5">
-            <Label>API Key</Label>
+            <Label>
+              Cloud Vision API Key <span className="text-destructive">*</span>
+            </Label>
             <div className="relative">
               <Input
-                data-ocid="settings.docai_api_key.input"
-                type={showDocApiKey ? "text" : "password"}
-                value={docAiCfg.apiKey}
+                data-ocid="settings.vision_api_key.input"
+                type={showVisionKey ? "text" : "password"}
+                value={docAiCfg.visionApiKey ?? ""}
                 onChange={(e) =>
-                  setDocAiCfg((p) => ({ ...p, apiKey: e.target.value }))
+                  setDocAiCfg((p) => ({ ...p, visionApiKey: e.target.value }))
                 }
-                placeholder="AIza…"
+                placeholder="AIzaSy…"
                 className="pr-10 font-mono text-sm"
               />
               <button
                 type="button"
-                onClick={() => setShowDocApiKey((p) => !p)}
+                onClick={() => setShowVisionKey((p) => !p)}
                 className="absolute right-3 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground"
               >
-                {showDocApiKey ? (
+                {showVisionKey ? (
                   <EyeOff className="w-4 h-4" />
                 ) : (
                   <Eye className="w-4 h-4" />
                 )}
               </button>
             </div>
+            <p className="text-xs text-muted-foreground">
+              This key is stored only in your browser's local storage.
+            </p>
           </div>
+
+          {/* Connection status */}
+          {visionStatus === "ok" && (
+            <div className="flex items-center gap-2 p-3 bg-green-500/10 border border-green-500/20 rounded-lg text-xs text-green-600">
+              <CheckCircle className="w-4 h-4 flex-shrink-0" />
+              Connected to Google Cloud Vision API successfully!
+            </div>
+          )}
+          {visionStatus === "error" && (
+            <div className="flex items-center gap-2 p-3 bg-destructive/10 border border-destructive/20 rounded-lg text-xs text-destructive">
+              <XCircle className="w-4 h-4 flex-shrink-0" />
+              API key test failed. Check the key and ensure Cloud Vision API is
+              enabled.
+            </div>
+          )}
 
           <div className="flex gap-3 flex-wrap">
             <Button
@@ -1095,20 +1178,113 @@ export default function SettingsPage() {
               onClick={handleSaveDocAi}
               className="bg-primary text-primary-foreground hover:bg-primary/90 gap-2"
             >
-              <Save className="w-4 h-4" /> Save Document AI Settings
+              <Save className="w-4 h-4" /> Save API Key
             </Button>
-            {docAiActive && (
-              <Button
-                type="button"
-                variant="outline"
-                data-ocid="settings.docai_clear.button"
-                onClick={handleClearDocAi}
-                className="gap-2 text-destructive hover:text-destructive hover:bg-destructive/10"
-              >
-                <X className="w-4 h-4" /> Clear Credentials
-              </Button>
-            )}
+            <Button
+              type="button"
+              variant="outline"
+              data-ocid="settings.vision_test.button"
+              onClick={handleTestVision}
+              disabled={testingVision || !visionKeyActive}
+              className="gap-2"
+            >
+              {testingVision ? (
+                <Loader2 className="w-4 h-4 animate-spin" />
+              ) : visionStatus === "ok" ? (
+                <CheckCircle className="w-4 h-4 text-green-600" />
+              ) : (
+                <FileSearch className="w-4 h-4" />
+              )}
+              {testingVision ? "Testing…" : "Test Connection"}
+            </Button>
+            <Button
+              type="button"
+              variant="outline"
+              data-ocid="settings.docai_clear.button"
+              onClick={handleClearDocAi}
+              className="gap-2 text-destructive hover:text-destructive hover:bg-destructive/10"
+            >
+              <X className="w-4 h-4" /> Clear
+            </Button>
           </div>
+
+          {/* Document AI reference fields (optional, for future use) */}
+          <details className="group">
+            <summary className="text-xs text-muted-foreground cursor-pointer hover:text-foreground select-none">
+              Advanced: Google Document AI (optional)
+            </summary>
+            <div className="mt-3 space-y-3 pl-2 border-l border-border">
+              <p className="text-xs text-muted-foreground">
+                Document AI Invoice Parser provides structured field extraction.
+                Requires a GCP project with Document AI API enabled. Save
+                credentials here for future use.
+              </p>
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                <div className="space-y-1.5">
+                  <Label className="text-xs">Project ID</Label>
+                  <Input
+                    data-ocid="settings.docai_project_id.input"
+                    value={docAiCfg.projectId}
+                    onChange={(e) =>
+                      setDocAiCfg((p) => ({ ...p, projectId: e.target.value }))
+                    }
+                    placeholder="my-gcp-project"
+                    className="text-sm"
+                  />
+                </div>
+                <div className="space-y-1.5">
+                  <Label className="text-xs">Location</Label>
+                  <Input
+                    data-ocid="settings.docai_location.input"
+                    value={docAiCfg.location}
+                    onChange={(e) =>
+                      setDocAiCfg((p) => ({ ...p, location: e.target.value }))
+                    }
+                    placeholder="us"
+                    className="text-sm"
+                  />
+                </div>
+              </div>
+              <div className="space-y-1.5">
+                <Label className="text-xs">Processor ID</Label>
+                <Input
+                  data-ocid="settings.docai_processor_id.input"
+                  value={docAiCfg.processorId}
+                  onChange={(e) =>
+                    setDocAiCfg((p) => ({ ...p, processorId: e.target.value }))
+                  }
+                  placeholder="xxxxxxxxxxxxxxxx"
+                  className="font-mono text-sm"
+                />
+              </div>
+              <div className="space-y-1.5">
+                <Label className="text-xs">Document AI API Key</Label>
+                <div className="relative">
+                  <Input
+                    data-ocid="settings.docai_api_key.input"
+                    type={showDocApiKey ? "text" : "password"}
+                    value={docAiCfg.apiKey}
+                    onChange={(e) =>
+                      setDocAiCfg((p) => ({ ...p, apiKey: e.target.value }))
+                    }
+                    placeholder="AIza…"
+                    className="pr-10 font-mono text-sm"
+                  />
+                  <button
+                    type="button"
+                    onClick={() => setShowDocApiKey((p) => !p)}
+                    className="absolute right-3 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground"
+                  >
+                    {showDocApiKey ? (
+                      <EyeOff className="w-4 h-4" />
+                    ) : (
+                      <Eye className="w-4 h-4" />
+                    )}
+                  </button>
+                </div>
+              </div>
+            </div>
+          </details>
         </div>
       </motion.div>
 

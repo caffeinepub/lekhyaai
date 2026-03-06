@@ -28,6 +28,7 @@ import {
   Plus,
   Receipt,
   Settings,
+  Shield,
   Tag,
   Truck,
   UserCog,
@@ -40,8 +41,10 @@ import { useState } from "react";
 import { useBusiness } from "../context/BusinessContext";
 import { useTheme } from "../context/ThemeContext";
 import { useInternetIdentity } from "../hooks/useInternetIdentity";
+import { isSuperUserActive } from "../utils/superuser";
 import CreateBusinessModal from "./CreateBusinessModal";
 import FloatingAiWidget from "./FloatingAiWidget";
+import FloatingCalculator from "./FloatingCalculator";
 import MandalaDecor from "./MandalaDecor";
 
 const navItems = [
@@ -87,8 +90,17 @@ export default function AppLayout() {
   const { logoUrl } = useTheme();
   const [createBizOpen, setCreateBizOpen] = useState(false);
   const [moreOpen, setMoreOpen] = useState(false);
+  const isSuperUser = isSuperUserActive();
 
-  const moreNavItems = navItems.filter(
+  // Build nav items dynamically — add SuperUser Settings if in dev mode
+  const allNavItems = [
+    ...navItems,
+    ...(isSuperUser
+      ? [{ path: "/superuser-settings", icon: Shield, label: "Dev Settings" }]
+      : []),
+  ];
+
+  const moreNavItems = allNavItems.filter(
     (n) => !mobileBottomNav.some((m) => m.path === n.path),
   );
 
@@ -198,9 +210,19 @@ export default function AppLayout() {
           </DropdownMenu>
         </div>
 
+        {/* SuperUser badge */}
+        {isSuperUser && (
+          <div className="mx-3 mb-1 px-3 py-1.5 bg-destructive/10 border border-destructive/20 rounded-lg flex items-center gap-1.5">
+            <Shield className="w-3 h-3 text-destructive flex-shrink-0" />
+            <span className="text-[10px] font-bold text-destructive uppercase tracking-wider">
+              Developer Mode
+            </span>
+          </div>
+        )}
+
         {/* Nav items */}
         <nav className="flex-1 overflow-y-auto py-3 px-3 scrollbar-thin">
-          {navItems.map((item) => {
+          {allNavItems.map((item) => {
             const isActive =
               item.path === "/"
                 ? location.pathname === "/"
@@ -431,6 +453,9 @@ export default function AppLayout() {
 
       {/* Floating AI Widget - appears on all pages except /ai-assistant */}
       <FloatingAiWidget />
+
+      {/* Floating Calculator - always on all pages */}
+      <FloatingCalculator />
     </div>
   );
 }

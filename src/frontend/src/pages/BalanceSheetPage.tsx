@@ -16,7 +16,7 @@ import { useState } from "react";
 import { InvoiceStatus } from "../backend.d";
 import { useBusiness } from "../context/BusinessContext";
 import { useExpenses, useInvoices, useProducts } from "../hooks/useQueries";
-import { downloadCSV } from "../utils/exportUtils";
+import { downloadCSV, printElementAsPdf } from "../utils/exportUtils";
 import { formatINRNumber } from "../utils/formatINR";
 
 // ─── Types ──────────────────────────────────────────────────────
@@ -244,7 +244,10 @@ export default function BalanceSheetPage() {
   }
 
   function handlePrint() {
-    window.print();
+    printElementAsPdf(
+      "bs-print-area",
+      `Balance Sheet — ${activeBusiness?.name ?? "LekhyaAI"}`,
+    );
   }
 
   return (

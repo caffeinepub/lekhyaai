@@ -17,7 +17,7 @@ import { motion } from "motion/react";
 import { useRef, useState } from "react";
 import { useBusiness } from "../context/BusinessContext";
 import { useExpenses, useInvoices } from "../hooks/useQueries";
-import { downloadCSV } from "../utils/exportUtils";
+import { downloadCSV, printElementAsPdf } from "../utils/exportUtils";
 import { formatINRNumber } from "../utils/formatINR";
 
 // ─── Types ──────────────────────────────────────────────────────
@@ -220,7 +220,10 @@ export default function PLReportPage() {
   }
 
   function handlePrint() {
-    window.print();
+    printElementAsPdf(
+      "pl-print-area",
+      `P&L Report — ${activeBusiness?.name ?? "LekhyaAI"}`,
+    );
   }
 
   return (

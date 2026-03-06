@@ -27,6 +27,7 @@ import {
   Wallet,
 } from "lucide-react";
 import { useRef, useState } from "react";
+import { printElementAsPdf } from "../utils/exportUtils";
 
 // ─── Types ────────────────────────────────────────────────────────
 interface Section {
@@ -1152,7 +1153,12 @@ export default function UserManualPage() {
   const current = SECTIONS.find((s) => s.id === activeSection) ?? SECTIONS[0];
 
   function handlePrint() {
-    window.print();
+    // Give the content area an id if not already present, then print
+    const el = contentRef.current;
+    if (el) {
+      el.id = "manual-print-area";
+    }
+    printElementAsPdf("manual-print-area", "LekhyaAI User Manual");
   }
 
   return (

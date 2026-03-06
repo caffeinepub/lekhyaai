@@ -337,7 +337,6 @@ function PermissionMatrix({ canEdit }: { canEdit: boolean }) {
                             }
                           : undefined
                       }
-                      // biome-ignore lint/a11y/useSemanticElements: interactive td within edit matrix
                       role={clickable ? "button" : undefined}
                       tabIndex={clickable ? 0 : undefined}
                       data-ocid={

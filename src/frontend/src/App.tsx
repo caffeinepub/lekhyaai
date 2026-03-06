@@ -8,11 +8,13 @@ import {
 } from "@tanstack/react-router";
 import { Suspense, lazy, useState } from "react";
 import AppLayout from "./components/AppLayout";
+import MarketingLayout from "./components/MarketingLayout";
 import SplashScreen from "./components/SplashScreen";
 import { BusinessProvider, useBusiness } from "./context/BusinessContext";
 import { ThemeProvider } from "./context/ThemeContext";
 import { useInternetIdentity } from "./hooks/useInternetIdentity";
 import LoginPage from "./pages/LoginPage";
+import MarketingPage from "./pages/MarketingPage";
 import OnboardingPage from "./pages/OnboardingPage";
 
 // Lazy-loaded pages -- only downloaded when the user navigates to them
@@ -41,6 +43,9 @@ const B2bReconciliationPage = lazy(
   () => import("./pages/B2bReconciliationPage"),
 );
 const UserManualPage = lazy(() => import("./pages/UserManualPage"));
+const SuperuserSettingsPage = lazy(
+  () => import("./pages/SuperuserSettingsPage"),
+);
 
 function PageLoader() {
   return (
@@ -263,6 +268,16 @@ const userManualRoute = createRoute({
   ),
 });
 
+const superuserSettingsRoute = createRoute({
+  getParentRoute: () => layoutRoute,
+  path: "/superuser-settings",
+  component: () => (
+    <Suspense fallback={<PageLoader />}>
+      <SuperuserSettingsPage />
+    </Suspense>
+  ),
+});
+
 const routeTree = rootRoute.addChildren([
   layoutRoute.addChildren([
     dashboardRoute,
@@ -286,6 +301,7 @@ const routeTree = rootRoute.addChildren([
     gstFilingRoute,
     b2bReconciliationRoute,
     userManualRoute,
+    superuserSettingsRoute,
   ]),
 ]);
 
@@ -350,6 +366,21 @@ export default function App() {
   const [splashDone, setSplashDone] = useState(
     () => !!sessionStorage.getItem("splash_shown"),
   );
+
+  // Marketing site at /marketing — no auth required
+  const isMarketing =
+    typeof window !== "undefined" &&
+    window.location.pathname.startsWith("/marketing");
+
+  if (isMarketing) {
+    return (
+      <ThemeProvider>
+        <MarketingLayout>
+          <MarketingPage />
+        </MarketingLayout>
+      </ThemeProvider>
+    );
+  }
 
   return (
     <ThemeProvider>

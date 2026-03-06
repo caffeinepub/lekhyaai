@@ -3,6 +3,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Separator } from "@/components/ui/separator";
 import { Skeleton } from "@/components/ui/skeleton";
+import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { cn } from "@/lib/utils";
 import {
   Download,
@@ -41,14 +42,22 @@ function computePL(
   expenses: ReturnType<typeof useExpenses>["data"],
   from: string,
   to: string,
+  mode: "cash" | "accrual" = "accrual",
 ): PLData {
   const fromMs = new Date(from).getTime();
   const toMs = new Date(to).getTime() + 86400000; // end of day
 
-  // Revenue from paid invoices
+  // Revenue from invoices — accrual includes sent+paid, cash only paid
   const periodInvoices = (invoices ?? []).filter((inv) => {
     const ms = Number(inv.invoiceDate / 1_000_000n);
-    return ms >= fromMs && ms <= toMs && inv.status === "paid";
+    if (mode === "cash") {
+      return ms >= fromMs && ms <= toMs && inv.status === "paid";
+    }
+    return (
+      ms >= fromMs &&
+      ms <= toMs &&
+      (inv.status === "paid" || inv.status === "sent")
+    );
   });
 
   const salesRevenue = periodInvoices.reduce(
@@ -176,12 +185,13 @@ export default function PLReportPage() {
   const [to, setTo] = useState(fyEnd);
   const [generated, setGenerated] = useState(false);
   const [plData, setPlData] = useState<PLData | null>(null);
+  const [basisMode, setBasisMode] = useState<"cash" | "accrual">("accrual");
 
   const isLoading = invLoading || expLoading;
 
   function handleGenerate() {
     if (!from || !to) return;
-    const data = computePL(invoices, expenses, from, to);
+    const data = computePL(invoices, expenses, from, to, basisMode);
     setPlData(data);
     setGenerated(true);
   }
@@ -254,6 +264,34 @@ export default function PLReportPage() {
             </Button>
           </div>
         )}
+      </div>
+
+      {/* Basis Toggle */}
+      <div className="mb-4">
+        <Tabs
+          value={basisMode}
+          onValueChange={(v) => {
+            setBasisMode(v as "cash" | "accrual");
+            setGenerated(false);
+          }}
+        >
+          <TabsList className="h-9">
+            <TabsTrigger
+              value="cash"
+              data-ocid="pl_report.cash_basis.tab"
+              className="text-xs"
+            >
+              Cash Basis
+            </TabsTrigger>
+            <TabsTrigger
+              value="accrual"
+              data-ocid="pl_report.accrual_basis.tab"
+              className="text-xs"
+            >
+              Accrual Basis
+            </TabsTrigger>
+          </TabsList>
+        </Tabs>
       </div>
 
       {/* Date Range Selector */}
@@ -458,11 +496,20 @@ export default function PLReportPage() {
             </div>
           </div>
 
-          <div className="px-6 pb-4">
+          <div className="px-6 pb-4 space-y-2">
+            <div className="bg-muted/30 rounded-lg px-4 py-2.5">
+              <p className="text-xs text-muted-foreground">
+                <span className="font-semibold text-foreground">
+                  {basisMode === "accrual" ? "Accrual Basis" : "Cash Basis"}:
+                </span>{" "}
+                {basisMode === "accrual"
+                  ? "Revenue recognised when invoice is raised (Sent + Paid invoices included)."
+                  : "Revenue recognised when payment is received (Paid invoices only)."}
+              </p>
+            </div>
             <p className="text-xs text-muted-foreground">
-              * This report is based on data entered in LekhyaAI. Revenue
-              reflects paid invoices only. Please verify with your CA before
-              filing.
+              * This report is based on data entered in LekhyaAI. Please verify
+              with your CA before filing.
             </p>
           </div>
         </motion.div>

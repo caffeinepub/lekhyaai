@@ -1,4 +1,3 @@
-import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import {
   Dialog,
@@ -18,14 +17,17 @@ import {
 import { Separator } from "@/components/ui/separator";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { Textarea } from "@/components/ui/textarea";
 import { cn } from "@/lib/utils";
 import {
   BookOpen,
+  Bot,
   ChevronDown,
   ChevronRight,
   Lock,
   Plus,
   ScrollText,
+  Sparkles,
   Trash2,
 } from "lucide-react";
 import { Loader2 } from "lucide-react";
@@ -44,6 +46,7 @@ import {
   useLedger,
 } from "../hooks/useQueries";
 import { formatDate, formatINR } from "../utils/formatINR";
+import { callLlamaApi, getLlamaConfig } from "../utils/llamaAi";
 
 // ─── Account type config ─────────────────────────────────────────
 const ACCOUNT_TYPE_CONFIG: Record<
@@ -258,6 +261,274 @@ function AddAccountDialog({
   );
 }
 
+// ─── AI Journal Entry Assistant ──────────────────────────────────
+interface AiParsedEntry {
+  narration: string;
+  reference?: string;
+  lines: { accountId: string; debit: number; credit: number }[];
+}
+
+function AiJournalEntryAssistant({
+  accounts,
+  onApply,
+}: {
+  accounts: LocalChartOfAccount[];
+  onApply: (parsed: AiParsedEntry) => void;
+}) {
+  const [isExpanded, setIsExpanded] = useState(false);
+  const [prompt, setPrompt] = useState("");
+  const [isParsing, setIsParsing] = useState(false);
+  const [parseStatus, setParseStatus] = useState<
+    | { type: "success"; message: string }
+    | { type: "error"; message: string }
+    | null
+  >(null);
+
+  const cfg = getLlamaConfig();
+  const hasApiKey = !!cfg.apiKey;
+
+  async function handleParse() {
+    if (!prompt.trim() || isParsing) return;
+    setIsParsing(true);
+    setParseStatus(null);
+
+    const freshCfg = getLlamaConfig();
+    if (!freshCfg.apiKey) {
+      setParseStatus({
+        type: "error",
+        message:
+          "Add your Groq API key in Settings → AI Engine to enable AI parsing.",
+      });
+      setIsParsing(false);
+      return;
+    }
+
+    const accountsContext = accounts
+      .map(
+        (a) =>
+          `{"id":"${a.id}","code":"${a.code}","name":"${a.name}","type":"${a.accountType}"}`,
+      )
+      .join(",");
+
+    const systemPrompt = `You are an expert Indian Chartered Accountant. The user will describe a financial transaction in plain language. Return ONLY a JSON object (no markdown, no code fences) with this exact structure: {"narration":"Being...","reference":"optional","lines":[{"accountId":"<exact id from account list>","debit":25000,"credit":0},{"accountId":"<exact id>","debit":0,"credit":25000}]}. Use double-entry accounting. Match accounts by name or type from the provided account list. If no exact match, pick the closest account by type. Lines must balance (sum of debits = sum of credits). Amounts must be plain numbers (not strings). Available accounts: [${accountsContext}]`;
+
+    try {
+      const raw = await callLlamaApi(
+        [
+          { role: "system", content: systemPrompt },
+          { role: "user", content: prompt },
+        ],
+        { ...freshCfg, temperature: 0.1 },
+      );
+
+      // Strip markdown code fences if any
+      const cleaned = raw
+        .replace(/```json\s*/gi, "")
+        .replace(/```\s*/gi, "")
+        .trim();
+
+      let parsed: AiParsedEntry;
+      try {
+        parsed = JSON.parse(cleaned) as AiParsedEntry;
+      } catch {
+        setParseStatus({
+          type: "error",
+          message:
+            "AI returned invalid JSON. Please rephrase your description and try again.",
+        });
+        setIsParsing(false);
+        return;
+      }
+
+      if (
+        !parsed.narration ||
+        !Array.isArray(parsed.lines) ||
+        parsed.lines.length < 2
+      ) {
+        setParseStatus({
+          type: "error",
+          message:
+            "AI could not determine the journal entry. Try a more detailed description.",
+        });
+        setIsParsing(false);
+        return;
+      }
+
+      // Filter only lines whose accountId exists in our accounts list
+      const validAccountIds = new Set(accounts.map((a) => a.id));
+      const validLines = parsed.lines.filter((l) =>
+        validAccountIds.has(l.accountId),
+      );
+      const skippedCount = parsed.lines.length - validLines.length;
+
+      if (validLines.length < 2) {
+        setParseStatus({
+          type: "error",
+          message:
+            "AI referenced accounts that don't exist in your chart of accounts. Try again.",
+        });
+        setIsParsing(false);
+        return;
+      }
+
+      onApply({ ...parsed, lines: validLines });
+
+      let successMsg = `AI parsed ${validLines.length} line${validLines.length > 1 ? "s" : ""} successfully`;
+      if (skippedCount > 0) {
+        successMsg += ` (${skippedCount} line${skippedCount > 1 ? "s" : ""} skipped — unknown account)`;
+        toast.warning(
+          `${skippedCount} account${skippedCount > 1 ? "s" : ""} from AI response not found in your chart of accounts and were skipped.`,
+        );
+      }
+
+      setParseStatus({ type: "success", message: successMsg });
+      setPrompt("");
+    } catch (err: unknown) {
+      const errMsg = err instanceof Error ? err.message : "Unknown error";
+      if (errMsg === "INVALID_API_KEY") {
+        setParseStatus({
+          type: "error",
+          message:
+            "Invalid Groq API key. Please update it in Settings → AI Engine.",
+        });
+      } else if (errMsg === "RATE_LIMIT") {
+        setParseStatus({
+          type: "error",
+          message:
+            "Groq rate limit reached. Please wait a moment and try again.",
+        });
+      } else {
+        setParseStatus({
+          type: "error",
+          message: `AI parsing failed: ${errMsg}. Please try again or fill the form manually.`,
+        });
+      }
+    } finally {
+      setIsParsing(false);
+    }
+  }
+
+  return (
+    <div className="rounded-xl border border-primary/20 bg-primary/5 overflow-hidden">
+      {/* Toggle header */}
+      <button
+        type="button"
+        onClick={() => setIsExpanded((p) => !p)}
+        className="w-full flex items-center justify-between px-4 py-3 hover:bg-primary/10 transition-colors"
+        data-ocid="ledger.ai_assistant.toggle"
+      >
+        <div className="flex items-center gap-2.5">
+          <div className="w-6 h-6 rounded-lg bg-primary/15 flex items-center justify-center">
+            <Bot className="w-3.5 h-3.5 text-primary" />
+          </div>
+          <span className="text-sm font-semibold text-foreground">
+            Describe this entry (AI)
+          </span>
+          <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded-full bg-primary/15 text-[10px] font-semibold text-primary">
+            <Sparkles className="w-2.5 h-2.5" />
+            Powered by Llama
+          </span>
+        </div>
+        <ChevronDown
+          className={cn(
+            "w-4 h-4 text-muted-foreground transition-transform duration-200",
+            isExpanded && "rotate-180",
+          )}
+        />
+      </button>
+
+      {/* Expandable content */}
+      <AnimatePresence initial={false}>
+        {isExpanded && (
+          <motion.div
+            initial={{ height: 0, opacity: 0 }}
+            animate={{ height: "auto", opacity: 1 }}
+            exit={{ height: 0, opacity: 0 }}
+            transition={{ duration: 0.2, ease: "easeInOut" }}
+            className="overflow-hidden"
+          >
+            <div className="px-4 pb-4 space-y-3 border-t border-primary/10">
+              {!hasApiKey ? (
+                <p className="text-xs text-amber-600 dark:text-amber-400 mt-3 flex items-start gap-2">
+                  <Bot className="w-3.5 h-3.5 mt-0.5 flex-shrink-0" />
+                  Add your Groq API key in{" "}
+                  <span className="font-semibold">Settings → AI Engine</span> to
+                  enable AI-powered journal entry parsing.
+                </p>
+              ) : (
+                <>
+                  <div className="mt-3 space-y-2">
+                    <Label className="text-xs text-muted-foreground">
+                      Describe the transaction in plain language
+                    </Label>
+                    <Textarea
+                      data-ocid="ledger.ai_entry_prompt.textarea"
+                      placeholder="e.g. Paid office rent ₹25,000 for March via bank transfer to landlord"
+                      value={prompt}
+                      onChange={(e) => setPrompt(e.target.value)}
+                      rows={3}
+                      className="resize-none text-sm bg-background border-border"
+                      disabled={isParsing}
+                    />
+                  </div>
+
+                  <Button
+                    type="button"
+                    size="sm"
+                    data-ocid="ledger.ai_parse.button"
+                    onClick={handleParse}
+                    disabled={isParsing || !prompt.trim()}
+                    className="bg-primary text-primary-foreground gap-2 h-8 text-xs"
+                  >
+                    {isParsing ? (
+                      <>
+                        <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                        Parsing with Llama AI…
+                      </>
+                    ) : (
+                      <>
+                        <Sparkles className="w-3.5 h-3.5" />
+                        Parse with AI
+                      </>
+                    )}
+                  </Button>
+                </>
+              )}
+
+              {/* Status message */}
+              {parseStatus && (
+                <motion.div
+                  initial={{ opacity: 0, y: -4 }}
+                  animate={{ opacity: 1, y: 0 }}
+                  data-ocid={
+                    parseStatus.type === "success"
+                      ? "ledger.ai_parse.success_state"
+                      : "ledger.ai_parse.error_state"
+                  }
+                  className={cn(
+                    "flex items-start gap-2 rounded-lg px-3 py-2.5 text-xs",
+                    parseStatus.type === "success"
+                      ? "bg-green-50 dark:bg-green-900/20 text-green-700 dark:text-green-400 border border-green-200 dark:border-green-800"
+                      : "bg-destructive/10 text-destructive border border-destructive/20",
+                  )}
+                >
+                  {parseStatus.type === "success" ? (
+                    <span className="font-semibold">
+                      ✓ {parseStatus.message}
+                    </span>
+                  ) : (
+                    <span>{parseStatus.message}</span>
+                  )}
+                </motion.div>
+              )}
+            </div>
+          </motion.div>
+        )}
+      </AnimatePresence>
+    </div>
+  );
+}
+
 // ─── New Journal Entry Dialog ───────────────────────────────────
 function NewJournalEntryDialog({
   open,
@@ -281,6 +552,24 @@ function NewJournalEntryDialog({
     { id: "line_2", accountId: "", debit: "", credit: "" },
   ]);
   const [errors, setErrors] = useState<Record<string, string>>({});
+
+  function handleAiApply(parsed: AiParsedEntry) {
+    if (parsed.narration) setNarration(parsed.narration);
+    if (parsed.reference) setReference(parsed.reference);
+    // Replace lines with AI-generated ones
+    if (parsed.lines.length >= 2) {
+      setLines(
+        parsed.lines.map((l, i) => ({
+          id: `line_ai_${i + 1}`,
+          accountId: l.accountId,
+          debit: l.debit > 0 ? String(l.debit) : "",
+          credit: l.credit > 0 ? String(l.credit) : "",
+        })),
+      );
+    }
+    // Clear errors since AI pre-filled values
+    setErrors({});
+  }
 
   function addLine() {
     setLines((p) => [
@@ -376,6 +665,12 @@ function NewJournalEntryDialog({
           </DialogTitle>
         </DialogHeader>
         <form onSubmit={handleSubmit} className="space-y-4 mt-2">
+          {/* AI Entry Assistant */}
+          <AiJournalEntryAssistant
+            accounts={accounts}
+            onApply={handleAiApply}
+          />
+
           <div className="grid grid-cols-2 gap-3">
             <div className="space-y-1.5">
               <Label>
@@ -820,7 +1115,27 @@ function LedgerView({ accountId }: { accountId: string | null }) {
     ACCOUNT_TYPE_CONFIG[
       ledger.account.accountType as LocalChartOfAccount["accountType"]
     ];
-  const isPositiveBalance = ledger.closingBalance >= 0;
+
+  // For Asset/Expense: Dr balance = positive (debit - credit)
+  // For Liability/Capital/Income: Cr balance = positive (credit - debit)
+  const isDebitNormalAccount =
+    ledger.account.accountType === "Asset" ||
+    ledger.account.accountType === "Expense";
+
+  // The closing balance stored is totalDebit - totalCredit
+  // For debit-normal accounts, positive = Dr balance; negative = Cr balance
+  // For credit-normal accounts, positive = Cr balance (credit > debit); negative = Dr balance
+  const absBalance = Math.abs(ledger.closingBalance);
+  const balanceType: "Dr" | "Cr" = isDebitNormalAccount
+    ? ledger.closingBalance >= 0
+      ? "Dr"
+      : "Cr"
+    : ledger.closingBalance <= 0
+      ? "Cr"
+      : "Dr";
+  const balanceIsHealthy = isDebitNormalAccount
+    ? ledger.closingBalance >= 0 // Dr for assets/expenses is normal
+    : ledger.closingBalance <= 0; // Cr for liabilities/income is normal
 
   return (
     <div className="flex flex-col h-full overflow-hidden">
@@ -873,25 +1188,35 @@ function LedgerView({ accountId }: { accountId: string | null }) {
           <div
             className={cn(
               "rounded-lg px-3 py-2.5",
-              isPositiveBalance
+              balanceIsHealthy
                 ? "bg-green-50 dark:bg-green-900/10"
-                : "bg-red-50 dark:bg-red-900/10",
+                : "bg-amber-50 dark:bg-amber-900/10",
             )}
           >
-            <p className="text-[10px] uppercase tracking-wider text-muted-foreground font-medium mb-0.5">
-              Closing Balance
-            </p>
+            <div className="flex items-center gap-1 mb-0.5">
+              <p className="text-[10px] uppercase tracking-wider text-muted-foreground font-medium">
+                Closing Balance
+              </p>
+              <span
+                className={cn(
+                  "text-[9px] font-bold px-1 py-0.5 rounded",
+                  balanceType === "Dr"
+                    ? "bg-blue-100 text-blue-700 dark:bg-blue-900/30 dark:text-blue-400"
+                    : "bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-400",
+                )}
+              >
+                {balanceType}
+              </span>
+            </div>
             <p
               className={cn(
                 "font-mono text-sm font-bold",
-                isPositiveBalance
+                balanceIsHealthy
                   ? "text-green-700 dark:text-green-400"
-                  : "text-red-700 dark:text-red-400",
+                  : "text-amber-700 dark:text-amber-400",
               )}
             >
-              {ledger.closingBalance < 0 ? "(" : ""}
-              {formatINR(BigInt(Math.abs(ledger.closingBalance)))}
-              {ledger.closingBalance < 0 ? ")" : ""}
+              {formatINR(BigInt(absBalance))}
             </p>
           </div>
         </div>
@@ -1015,17 +1340,27 @@ function LedgerView({ accountId }: { accountId: string | null }) {
                   {formatINR(BigInt(ledger.totalCredit))}
                 </td>
                 <td className="px-4 py-2.5 text-right font-mono text-xs font-bold">
-                  <span
-                    className={
-                      isPositiveBalance
-                        ? "text-green-700 dark:text-green-400"
-                        : "text-red-700 dark:text-red-400"
-                    }
-                  >
-                    {ledger.closingBalance < 0 ? "(" : ""}
-                    {formatINR(BigInt(Math.abs(ledger.closingBalance)))}
-                    {ledger.closingBalance < 0 ? ")" : ""}
-                  </span>
+                  <div className="flex items-center justify-end gap-1">
+                    <span
+                      className={cn(
+                        "text-[9px] font-bold px-1 py-0.5 rounded",
+                        balanceType === "Dr"
+                          ? "bg-blue-100 text-blue-700 dark:bg-blue-900/30 dark:text-blue-400"
+                          : "bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-400",
+                      )}
+                    >
+                      {balanceType}
+                    </span>
+                    <span
+                      className={
+                        balanceIsHealthy
+                          ? "text-green-700 dark:text-green-400"
+                          : "text-amber-700 dark:text-amber-400"
+                      }
+                    >
+                      {formatINR(BigInt(absBalance))}
+                    </span>
+                  </div>
                 </td>
               </tr>
             </tfoot>

@@ -9,13 +9,20 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { cn } from "@/lib/utils";
-import { BarChart3, FileDown, Loader2, RefreshCw } from "lucide-react";
+import {
+  BarChart3,
+  ChevronDown,
+  ChevronRight,
+  FileDown,
+  Loader2,
+  RefreshCw,
+} from "lucide-react";
 import { motion } from "motion/react";
 import { useState } from "react";
 import { toast } from "sonner";
 import { useBusiness } from "../context/BusinessContext";
 import { useActor } from "../hooks/useActor";
-import { dateStringToNs, formatINR } from "../utils/formatINR";
+import { dateStringToNs, formatINR, formatINRNumber } from "../utils/formatINR";
 
 type Period =
   | "current-month"
@@ -81,11 +88,31 @@ const PERIOD_LABELS: Record<Period, string> = {
   custom: "Custom Range",
 };
 
+interface InvoiceBreakdownRow {
+  invoiceNo: string;
+  party: string;
+  taxableAmt: bigint;
+  cgst: bigint;
+  sgst: bigint;
+  igst: bigint;
+  totalGst: bigint;
+}
+
+interface ExpenseBreakdownRow {
+  description: string;
+  vendor: string;
+  amount: bigint;
+  gst: bigint;
+}
+
 interface ReportData {
   outputGst: bigint;
   inputGst: bigint;
   netPayable: bigint;
+  excessItc: bigint;
   period: string;
+  invoiceRows: InvoiceBreakdownRow[];
+  expenseRows: ExpenseBreakdownRow[];
 }
 
 export default function GstReportsPage() {
@@ -96,6 +123,7 @@ export default function GstReportsPage() {
   const [customEnd, setCustomEnd] = useState("");
   const [loading, setLoading] = useState(false);
   const [report, setReport] = useState<ReportData | null>(null);
+  const [showDetails, setShowDetails] = useState(false);
 
   const dates =
     period !== "custom"
@@ -125,6 +153,7 @@ export default function GstReportsPage() {
       ]);
 
       let outputGst = 0n;
+      const invoiceRows: InvoiceBreakdownRow[] = [];
       for (const inv of allInvoices) {
         if (
           inv.invoiceDate >= periodStart &&
@@ -132,26 +161,47 @@ export default function GstReportsPage() {
           (inv.status === "sent" || inv.status === "paid")
         ) {
           outputGst += inv.cgst + inv.sgst + inv.igst;
+          invoiceRows.push({
+            invoiceNo: inv.invoiceNumber,
+            party: `#${inv.customerId}`,
+            taxableAmt: inv.subtotal,
+            cgst: inv.cgst,
+            sgst: inv.sgst,
+            igst: inv.igst,
+            totalGst: inv.cgst + inv.sgst + inv.igst,
+          });
         }
       }
 
       let inputGst = 0n;
+      const expenseRows: ExpenseBreakdownRow[] = [];
       for (const exp of allExpenses) {
         if (exp.expenseDate >= periodStart && exp.expenseDate <= periodEnd) {
           inputGst += exp.gstAmount;
+          expenseRows.push({
+            description: exp.category || exp.description || "Expense",
+            vendor: `#${exp.vendorId}`,
+            amount: exp.amount,
+            gst: exp.gstAmount,
+          });
         }
       }
 
-      const netPayable = outputGst > inputGst ? outputGst - inputGst : 0n;
+      const rawNet = outputGst - inputGst;
+      const netPayable = rawNet > 0n ? rawNet : 0n;
+      const excessItc = rawNet < 0n ? -rawNet : 0n;
 
       setReport({
         outputGst,
         inputGst,
         netPayable,
+        excessItc,
         period:
           period !== "custom"
             ? PERIOD_LABELS[period]
             : `${dates.start} to ${dates.end}`,
+        invoiceRows,
+        expenseRows,
       });
       toast.success("GST Report generated!");
     } catch {
@@ -354,10 +404,141 @@ export default function GstReportsPage() {
                   {formatINR(report.netPayable)}
                 </span>
               </div>
+              {report.excessItc > 0n && (
+                <div className="flex justify-between px-4 py-3 text-sm bg-success/10">
+                  <span className="text-success font-semibold">
+                    Excess ITC (Carry Forward)
+                  </span>
+                  <span className="font-bold tabular-nums text-success">
+                    {formatINR(report.excessItc)}
+                  </span>
+                </div>
+              )}
             </div>
           </div>
 
-          <p className="text-xs text-muted-foreground mt-4">
+          {/* Toggle Details Button */}
+          <Button
+            variant="outline"
+            size="sm"
+            data-ocid="gst_reports.details_toggle.button"
+            onClick={() => setShowDetails((v) => !v)}
+            className="gap-2 text-xs"
+          >
+            {showDetails ? (
+              <ChevronDown className="w-3.5 h-3.5" />
+            ) : (
+              <ChevronRight className="w-3.5 h-3.5" />
+            )}
+            {showDetails ? "Hide" : "Show"} Transaction Details
+          </Button>
+
+          {/* Detailed Breakdown */}
+          {showDetails && (
+            <div className="space-y-4">
+              {/* Output GST Breakdown */}
+              <div>
+                <p className="text-xs font-bold uppercase tracking-wider text-success mb-2">
+                  Output GST — Invoice-wise Breakdown
+                </p>
+                {report.invoiceRows.length === 0 ? (
+                  <p className="text-xs text-muted-foreground px-2 py-3">
+                    No invoices in this period.
+                  </p>
+                ) : (
+                  <div className="border border-border rounded-lg overflow-hidden text-xs">
+                    <div className="grid grid-cols-12 gap-0 bg-muted/30 px-3 py-2 font-semibold text-muted-foreground border-b border-border">
+                      <div className="col-span-2">Invoice #</div>
+                      <div className="col-span-3">Party</div>
+                      <div className="col-span-2 text-right">Taxable</div>
+                      <div className="col-span-1 text-right">CGST</div>
+                      <div className="col-span-1 text-right">SGST</div>
+                      <div className="col-span-1 text-right">IGST</div>
+                      <div className="col-span-2 text-right">Total GST</div>
+                    </div>
+                    {report.invoiceRows.map((row, i) => (
+                      <div
+                        key={row.invoiceNo}
+                        className="grid grid-cols-12 gap-0 px-3 py-2 border-b border-border/50 last:border-0"
+                        data-ocid={`gst_reports.invoice_row.${i + 1}`}
+                      >
+                        <div className="col-span-2 font-mono text-primary">
+                          {row.invoiceNo}
+                        </div>
+                        <div className="col-span-3 text-foreground truncate">
+                          {row.party}
+                        </div>
+                        <div className="col-span-2 text-right font-mono">
+                          ₹{formatINRNumber(Number(row.taxableAmt) / 100)}
+                        </div>
+                        <div className="col-span-1 text-right font-mono">
+                          {row.cgst > 0n
+                            ? `₹${formatINRNumber(Number(row.cgst) / 100)}`
+                            : "—"}
+                        </div>
+                        <div className="col-span-1 text-right font-mono">
+                          {row.sgst > 0n
+                            ? `₹${formatINRNumber(Number(row.sgst) / 100)}`
+                            : "—"}
+                        </div>
+                        <div className="col-span-1 text-right font-mono">
+                          {row.igst > 0n
+                            ? `₹${formatINRNumber(Number(row.igst) / 100)}`
+                            : "—"}
+                        </div>
+                        <div className="col-span-2 text-right font-mono font-semibold text-success">
+                          ₹{formatINRNumber(Number(row.totalGst) / 100)}
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+
+              {/* Input GST Breakdown */}
+              <div>
+                <p className="text-xs font-bold uppercase tracking-wider text-info mb-2">
+                  Input GST Credit — Expense-wise Breakdown
+                </p>
+                {report.expenseRows.length === 0 ? (
+                  <p className="text-xs text-muted-foreground px-2 py-3">
+                    No expenses in this period.
+                  </p>
+                ) : (
+                  <div className="border border-border rounded-lg overflow-hidden text-xs">
+                    <div className="grid grid-cols-12 gap-0 bg-muted/30 px-3 py-2 font-semibold text-muted-foreground border-b border-border">
+                      <div className="col-span-5">Expense</div>
+                      <div className="col-span-3">Vendor</div>
+                      <div className="col-span-2 text-right">Amount</div>
+                      <div className="col-span-2 text-right">GST</div>
+                    </div>
+                    {report.expenseRows.map((row, i) => (
+                      <div
+                        key={`${row.description}-${i}`}
+                        className="grid grid-cols-12 gap-0 px-3 py-2 border-b border-border/50 last:border-0"
+                        data-ocid={`gst_reports.expense_row.${i + 1}`}
+                      >
+                        <div className="col-span-5 text-foreground truncate">
+                          {row.description}
+                        </div>
+                        <div className="col-span-3 text-muted-foreground truncate">
+                          {row.vendor}
+                        </div>
+                        <div className="col-span-2 text-right font-mono">
+                          ₹{formatINRNumber(Number(row.amount) / 100)}
+                        </div>
+                        <div className="col-span-2 text-right font-mono font-semibold text-info">
+                          ₹{formatINRNumber(Number(row.gst) / 100)}
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+            </div>
+          )}
+
+          <p className="text-xs text-muted-foreground">
             * This report is indicative. Please verify with your CA before
             filing GSTR-3B.
           </p>

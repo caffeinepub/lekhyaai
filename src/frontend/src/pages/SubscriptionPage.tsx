@@ -15,6 +15,7 @@ import { useState } from "react";
 import { toast } from "sonner";
 import { useActor } from "../hooks/useActor";
 import { useSubscriptionStatus } from "../hooks/useQueries";
+import { formatINRNumber } from "../utils/formatINR";
 
 // SubscriptionTier is not yet in backend.d.ts — define locally
 const SubscriptionTier = { free: "free", paid: "paid" } as const;
@@ -210,15 +211,15 @@ export default function SubscriptionPage() {
         <motion.div
           initial={{ opacity: 0, y: 16 }}
           animate={{ opacity: 1, y: 0 }}
-          className="bg-sidebar rounded-2xl p-6 relative overflow-hidden"
+          className="bg-gradient-to-br from-primary/5 via-card to-accent/5 border border-primary/20 rounded-2xl p-6 relative overflow-hidden shadow-card"
           data-ocid="subscription.upgrade_card"
         >
           {/* Decorative */}
           <div
-            className="absolute inset-0 opacity-10"
+            className="absolute inset-0 opacity-5"
             style={{
               backgroundImage:
-                "radial-gradient(circle at 80% 20%, oklch(0.72 0.16 80 / 0.5) 0%, transparent 50%)",
+                "radial-gradient(circle at 80% 20%, oklch(0.72 0.16 80 / 0.8) 0%, transparent 50%)",
             }}
           />
 
@@ -226,13 +227,13 @@ export default function SubscriptionPage() {
             <div className="flex items-center gap-2 mb-2">
               <Crown
                 className="w-5 h-5"
-                style={{ color: "oklch(0.72 0.16 80)" }}
+                style={{ color: "oklch(0.65 0.18 55)" }}
               />
-              <span className="font-bold text-sidebar-foreground text-lg">
+              <span className="font-bold text-foreground text-lg">
                 Upgrade to Pro
               </span>
             </div>
-            <p className="text-sidebar-foreground/70 text-sm mb-4">
+            <p className="text-muted-foreground text-sm mb-4">
               Unlock unlimited invoices, advanced GST reports, and full AI
               accounting for your business.
             </p>
@@ -240,47 +241,57 @@ export default function SubscriptionPage() {
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 mb-6">
               {PRO_FEATURES.map((f) => (
                 <div key={f} className="flex items-start gap-2">
-                  <Check
-                    className="w-4 h-4 text-sidebar-foreground/80 flex-shrink-0 mt-0.5"
-                    style={{ color: "oklch(0.72 0.16 80)" }}
-                  />
-                  <span className="text-sm text-sidebar-foreground/80">
-                    {f}
-                  </span>
+                  <Check className="w-4 h-4 text-primary flex-shrink-0 mt-0.5" />
+                  <span className="text-sm text-foreground">{f}</span>
                 </div>
               ))}
             </div>
 
-            <div className="flex items-center gap-4">
-              <div>
-                <span className="text-3xl font-bold text-sidebar-foreground">
-                  ₹ 999
-                </span>
-                <span className="text-sidebar-foreground/60 text-sm">
-                  /month
-                </span>
+            {/* Pricing toggle */}
+            <div className="flex flex-col sm:flex-row items-start sm:items-center gap-4 mb-5">
+              <div className="flex flex-col sm:flex-row gap-3">
+                <div className="flex items-end gap-1 bg-muted/60 rounded-xl px-4 py-3 border border-border">
+                  <span className="text-3xl font-bold text-foreground">
+                    ₹{formatINRNumber(999)}
+                  </span>
+                  <span className="text-muted-foreground text-sm pb-0.5">
+                    /month
+                  </span>
+                </div>
+                <div className="flex items-end gap-1 bg-success/10 rounded-xl px-4 py-3 border border-success/20">
+                  <span className="text-2xl font-bold text-foreground">
+                    ₹{formatINRNumber(9999)}
+                  </span>
+                  <span className="text-muted-foreground text-sm pb-0.5">
+                    /year
+                  </span>
+                  <span className="text-xs font-bold text-success pb-0.5 ml-1">
+                    Save ~17%
+                  </span>
+                </div>
               </div>
-              <Button
-                data-ocid="subscription.upgrade_button"
-                onClick={handleUpgrade}
-                disabled={upgradeLoading}
-                className="bg-accent text-accent-foreground hover:bg-accent/90 font-semibold px-6"
-              >
-                {upgradeLoading ? (
-                  <>
-                    <Loader2 className="w-4 h-4 mr-2 animate-spin" />
-                    Processing…
-                  </>
-                ) : (
-                  <>
-                    <Crown className="w-4 h-4 mr-2" />
-                    Upgrade Now
-                  </>
-                )}
-              </Button>
             </div>
 
-            <p className="text-sidebar-foreground/40 text-xs mt-3">
+            <Button
+              data-ocid="subscription.upgrade_button"
+              onClick={handleUpgrade}
+              disabled={upgradeLoading}
+              className="bg-primary text-primary-foreground hover:bg-primary/90 font-semibold px-8"
+            >
+              {upgradeLoading ? (
+                <>
+                  <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+                  Processing…
+                </>
+              ) : (
+                <>
+                  <Crown className="w-4 h-4 mr-2" />
+                  Upgrade Now
+                </>
+              )}
+            </Button>
+
+            <p className="text-muted-foreground text-xs mt-3">
               Secured checkout via Stripe. Cancel anytime.
             </p>
           </div>

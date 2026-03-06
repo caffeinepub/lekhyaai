@@ -79,6 +79,14 @@ export default function FloatingAiWidget() {
   const [llamaCfg, setLlamaCfg] = useState(() => getLlamaConfig());
   const hasApiKey = !!llamaCfg.apiKey;
 
+  // Re-read Groq key whenever the widget is opened (covers same-tab Settings saves)
+  useEffect(() => {
+    if (isOpen) {
+      setLlamaCfg(getLlamaConfig());
+    }
+  }, [isOpen]);
+
+  // Also sync on cross-tab storage changes
   useEffect(() => {
     function onStorage(e: StorageEvent) {
       if (e.key === LS_KEY_API_KEY || e.key === null) {
@@ -108,8 +116,11 @@ export default function FloatingAiWidget() {
   }
 
   async function sendWidgetMessage(text: string) {
-    if (!text.trim() || isLoading || !actor || activeBusinessId === null)
-      return;
+    if (!text.trim() || isLoading || activeBusinessId === null) return;
+
+    // Always read the freshest API key from localStorage at call time
+    const freshCfg = getLlamaConfig();
+    setLlamaCfg(freshCfg);
 
     const userMsg: WidgetMessage = {
       id: `w-user-${Date.now()}`,
@@ -123,10 +134,13 @@ export default function FloatingAiWidget() {
     setIsLoading(true);
 
     try {
-      const [allInvoices, allExpenses] = await Promise.all([
-        actor.getInvoices(activeBusinessId),
-        actor.getExpenses(activeBusinessId),
-      ]);
+      // actor may be null on non-authenticated pages; fall back to rule-based gracefully
+      const [allInvoices, allExpenses] = actor
+        ? await Promise.all([
+            actor.getInvoices(activeBusinessId),
+            actor.getExpenses(activeBusinessId),
+          ])
+        : [[], []];
 
       const now = Date.now();
       const monthStart = BigInt((now - 30 * 24 * 60 * 60 * 1000) * 1_000_000);
@@ -158,7 +172,7 @@ export default function FloatingAiWidget() {
 
       let responseContent: string;
 
-      if (hasApiKey) {
+      if (freshCfg.apiKey) {
         const year =
           new Date().getMonth() >= 3
             ? new Date().getFullYear()
@@ -183,15 +197,24 @@ Be concise (2-4 sentences). Format money as ₹X,XX,XXX. Follow Indian GST laws.
               ...recentHistory,
               { role: "user", content: text },
             ],
-            llamaCfg,
+            freshCfg,
           );
-        } catch {
-          responseContent = getWidgetRuleBasedResponse(
-            text,
-            allInvoices,
-            allExpenses,
-            monthStart,
-          );
+        } catch (apiErr: unknown) {
+          const errMsg = apiErr instanceof Error ? apiErr.message : "Unknown";
+          if (errMsg === "INVALID_API_KEY") {
+            responseContent =
+              "Invalid Groq API key. Please update it in Settings > AI Engine.";
+          } else if (errMsg === "RATE_LIMIT") {
+            responseContent =
+              "Groq rate limit reached. Please wait a moment and try again.";
+          } else {
+            responseContent = getWidgetRuleBasedResponse(
+              text,
+              allInvoices,
+              allExpenses,
+              monthStart,
+            );
+          }
         }
       } else {
         responseContent = getWidgetRuleBasedResponse(

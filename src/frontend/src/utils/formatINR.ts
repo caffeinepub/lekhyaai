@@ -15,11 +15,17 @@ export function formatINR(paise: bigint): string {
 export function formatINRNumber(rupees: number): string {
   const isNegative = rupees < 0;
   const absRupees = Math.abs(rupees);
-
   const [intPart, decPart = "00"] = absRupees.toFixed(2).split(".");
 
-  // Indian number formatting: last 3 digits, then groups of 2
-  const formatted = intPart.replace(/\B(?=(\d{2})+(?!\d)(?<=\d{3,}))/g, ",");
+  // Indian system: last 3 digits, then groups of 2 from right
+  let formatted: string;
+  if (intPart.length <= 3) {
+    formatted = intPart;
+  } else {
+    const last3 = intPart.slice(-3);
+    const rest = intPart.slice(0, -3);
+    formatted = `${rest.replace(/\B(?=(\d{2})+(?!\d))/g, ",")},${last3}`;
+  }
 
   return `${isNegative ? "-" : ""}₹\u00A0${formatted}.${decPart}`;
 }

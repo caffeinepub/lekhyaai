@@ -19,6 +19,7 @@ import { cn } from "@/lib/utils";
 import {
   CreditCard,
   Loader2,
+  MessageSquare,
   Plus,
   ScanLine,
   Search,
@@ -35,6 +36,7 @@ import {
   type Product,
 } from "../backend.d";
 import DeleteConfirmDialog from "../components/DeleteConfirmDialog";
+import InvoiceWhatsAppChat from "../components/InvoiceWhatsAppChat";
 import OcrScanModal, {
   type NewProductFromScan,
   type OcrExtractedData,
@@ -153,6 +155,7 @@ interface CreateInvoiceModalProps {
   products: Product[];
   businessState: string;
   nextInvoiceNumber: string;
+  existingInvoiceNumbers: string[];
 }
 
 function CreateInvoiceModal({
@@ -162,6 +165,7 @@ function CreateInvoiceModal({
   products,
   businessState,
   nextInvoiceNumber,
+  existingInvoiceNumbers,
 }: CreateInvoiceModalProps) {
   const createInvoice = useCreateInvoice();
   const [form, setForm] = useState({
@@ -267,6 +271,13 @@ function CreateInvoiceModal({
     if (!form.customerId) errs.customerId = "Select a customer";
     if (!form.invoiceNumber.trim())
       errs.invoiceNumber = "Invoice number required";
+    else if (
+      existingInvoiceNumbers
+        .map((n) => n.toLowerCase().trim())
+        .includes(form.invoiceNumber.toLowerCase().trim())
+    ) {
+      errs.invoiceNumber = `Duplicate: Invoice "${form.invoiceNumber}" already exists`;
+    }
     if (!form.invoiceDate) errs.invoiceDate = "Invoice date required";
     if (items.length === 0) errs.items = "Add at least one item";
     items.forEach((item, i) => {
@@ -815,6 +826,7 @@ export default function InvoicesPage() {
 
   const [createOpen, setCreateOpen] = useState(false);
   const [ocrOpen, setOcrOpen] = useState(false);
+  const [chatOpen, setChatOpen] = useState(false);
   const [paymentInvoiceId, setPaymentInvoiceId] = useState<bigint | null>(null);
   const [paymentInvoiceAmount, setPaymentInvoiceAmount] = useState<bigint>(0n);
   const [deleteId, setDeleteId] = useState<bigint | null>(null);
@@ -849,6 +861,23 @@ export default function InvoicesPage() {
     data: OcrExtractedData,
     newProducts: NewProductFromScan[],
   ) {
+    // Step 0: Duplicate invoice check
+    const scannedInvoiceNo = (data.invoiceNumber || "").trim();
+    if (scannedInvoiceNo) {
+      const isDuplicate = invoices.some(
+        (inv) =>
+          inv.invoiceNumber.toLowerCase().trim() ===
+          scannedInvoiceNo.toLowerCase(),
+      );
+      if (isDuplicate) {
+        toast.error(
+          `Duplicate invoice detected: "${scannedInvoiceNo}" already exists in your records. This invoice has already been scanned.`,
+          { duration: 6000 },
+        );
+        return;
+      }
+    }
+
     // Step 1: Find or create customer
     let customerId: bigint;
     const existingCustomer = customers.find(
@@ -976,6 +1005,15 @@ export default function InvoicesPage() {
           >
             <ScanLine className="w-4 h-4" />
             <span className="hidden sm:inline">Scan Invoice</span>
+          </Button>
+          <Button
+            variant="outline"
+            data-ocid="invoices.chat.open_modal_button"
+            onClick={() => setChatOpen(true)}
+            className="gap-2 border-[#25D366]/40 text-[#25D366] hover:bg-[#25D366]/10"
+          >
+            <MessageSquare className="w-4 h-4" />
+            <span className="hidden sm:inline">Chat Invoice</span>
           </Button>
           <Button
             data-ocid="invoices.create.open_modal_button"
@@ -1160,6 +1198,7 @@ export default function InvoicesPage() {
         products={products}
         businessState={activeBusiness?.state ?? ""}
         nextInvoiceNumber={nextInvoiceNumber}
+        existingInvoiceNumbers={invoices.map((inv) => inv.invoiceNumber)}
       />
       <OcrScanModal
         open={ocrOpen}
@@ -1183,6 +1222,11 @@ export default function InvoicesPage() {
         title="Delete Invoice?"
         description="This will permanently delete the invoice and cannot be undone."
         ocidPrefix="invoices.delete"
+      />
+      <InvoiceWhatsAppChat
+        isOpen={chatOpen}
+        onClose={() => setChatOpen(false)}
+        onInvoiceCreated={() => setChatOpen(false)}
       />
     </div>
   );

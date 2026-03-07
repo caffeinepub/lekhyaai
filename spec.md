@@ -1,51 +1,89 @@
-# LekhyaAI — Sub-phase 2A
+# LekhyaAI — Phase 2C
 
 ## Current State
 
-LekhyaAI is a full-stack GST accounting web app with:
-- 24 pages: Dashboard, Invoices, Customers, Vendors, Products, Expenses, Ledger, GST Reports, GST Filing, B2B Reconciliation, Bank Accounts, Petty Cash, P&L Report, Balance Sheet, AI Assistant, Subscription, Settings, Users & Access, Tally Import, Company Categories, User Manual, Marketing (at /marketing), Onboarding, Login
-- Floating AI widget on all pages (shares Llama/Groq chat history with AI Assistant page)
-- Indian mandala floral corners on all pages
-- Multi-business support with business switcher
-- Settings: color themes, branding (logo/signature), AI engine (Groq/Llama), Invoice OCR (Llama Vision), Webhooks
-- `package.json` still contains unused packages: `three`, `@react-three/cannon`, `@react-three/drei`, `@react-three/fiber`, `react-quill-new`, `@types/three`
+LekhyaAI is a full-stack GST accounting SaaS built on ICP/Motoko backend + React frontend. Version 38 is live with:
+- Full accounting modules (Dashboard, Invoices, Ledger, GST Reports, P&L, Balance Sheet, etc.)
+- Marketing website at `/` and accounting app at `/app`
+- SuperUser/Developer mode (PIN: LEKHYA2024) with settings at `/app/superuser-settings`
+- Floating calculator and AI widget
+- Llama Vision OCR invoice scanner
+- RBAC for business users (Admin/Accountant/CA roles)
 
 ## Requested Changes (Diff)
 
 ### Add
 
-1. **SuperUser/Developer mode** — Role-based, same login page. After normal login, if the user enters a secret developer PIN (stored in `localStorage`; default `LEKHYA2024`), their session is flagged as `superuser`. The PIN is changeable in SuperUser Settings. SuperUser mode shows:
-   - A visible "Developer Mode" badge in the sidebar header
-   - A hidden `SuperUser Settings` nav item (only visible when in superuser mode) at `/superuser-settings`
-   - SuperUser Settings page includes: Change Developer PIN, API key management for all third-party integrations (AI, OCR, WhatsApp, Email, Payment Gateway), module on/off toggles per integration, auto-backup settings (backup frequency, backup destination placeholder), and a Developer Notes textarea for internal documentation
+1. **Onboard Portal** (`/onboard`) — SuperUser-only client management system with:
+   - Client list with status (Active / Trial / Suspended)
+   - Add/Edit client form with all onboarding fields: Business name, Contact person, Phone, Email, GSTIN, State, Industry, Address, Selected plan, Notes
+   - AI-assisted field suggestion (pre-fill industry defaults using Llama)
+   - Assign webapp access to client (generate access token / client ID)
+   - Client detail view with their users and subscription info
 
-2. **Floating Professional Calculator** — A draggable, professional calculator widget that floats above the AI assistant button on all pages. Features:
-   - Standard arithmetic: +, -, ×, ÷
-   - Percentage button (%)
-   - Clear (C) and all-clear (AC)
-   - Memory functions: M+, M-, MR, MC
-   - Indian number formatting on the display (lakh, crore) up to 15 digits
-   - Keyboard input support (numbers, operators, Enter, Escape, Backspace)
-   - Minimize/maximize toggle
-   - Position: fixed, bottom-right, above the AI widget button
+2. **Quotation Form** (`/onboard/quotation`) — For generating deployment quotes:
+   - Pricing breakup: per-user fee, per-invoice fee, Tally import volume, development charges, server charges
+   - GST (18%) applied on top
+   - Loyalty discount field (configurable %)
+   - Generated quote preview (printable)
+   - All prices are editable by SuperUser in SuperUser Settings
+
+3. **Subscription Pricing Editor** (in SuperUser Settings page) — New section:
+   - Editable pricing for all tiers (Starter, Professional, Enterprise) — monthly and annual
+   - Per-user rate, per-invoice rate, Tally import tier pricing
+   - Development charges (one-time), server charges (monthly)
+   - GST rate override (default 18%)
+   - Save prices to localStorage; these populate both the marketing website pricing and quotation form
+
+4. **Dummy Payment Gateway** (`/app/payment-checkout`) — Simulated Razorpay/Stripe checkout UI:
+   - Plan selection card
+   - Payment form: card number, expiry, CVV, name on card
+   - "Pay Now" button that simulates success with confetti animation
+   - API key placeholder in SuperUser Settings (already present, needs wiring to show "LIVE" vs "TEST" badge)
+
+5. **Auto-Backup Settings** (SuperUser Settings — already has UI, needs backend wiring):
+   - "Run Backup Now" button that exports all localStorage data as a JSON file download
+   - Scheduled reminder: shows a toast/notification when backup is due (based on frequency setting)
+   - Last backup timestamp display
+
+6. **WhatsApp & Email Send Actions** (in Invoices, P&L Report, GST Reports pages):
+   - "Send via WhatsApp" button: opens `wa.me/{phone}?text={AI-drafted message}` link (no API needed)
+   - "Send via Email" button: opens `mailto:{email}?subject=...&body=...` link (no SMTP needed yet)
+   - AI drafts both the WhatsApp message and email body using Llama with the actual invoice/report data
+   - Phone/email pulled from customer record on invoice; user can edit before sending
+
+7. **Full RBAC Matrix** (in `/app/users` page) — Editable module+feature permission grid:
+   - Rows: all 20+ modules (Dashboard, Invoices, Customers, Vendors, Products, Expenses, GST Reports, Ledger, P&L, Balance Sheet, Bank Accounts, Petty Cash, Tally Import, GST Filing, B2B Reconciliation, AI Assistant, Journal Entry, Subscriptions, Settings, User Manual, WhatsApp Send, Email Send, PDF Export, OCR Scanner)
+   - Columns: Admin (locked full), Accountant, CA
+   - Checkboxes to toggle each permission per role
+   - "Reset Defaults" button
+   - Permissions checked in AppLayout sidebar — hidden menu items for restricted roles
 
 ### Modify
 
-- **`package.json`** — Remove `three`, `@react-three/cannon`, `@react-three/drei`, `@react-three/fiber`, `react-quill-new`, `@types/three`
-- **`LoginPage.tsx`** — Add a hidden "Developer Access" link (small, subtle, at the bottom of the login form) that opens a modal where the developer enters their PIN to enable superuser mode before logging in (or after)
-- **`AppLayout.tsx`** — Show "Developer Mode" badge in sidebar when superuser mode active; add `/superuser-settings` to nav (conditional on superuser mode)
+- **SuperUser Settings** — Add Subscription Pricing Editor section and "Run Backup Now" button
+- **Marketing Page pricing** — Read prices from editable pricing config (SuperUser can update)
+- **AppLayout sidebar** — Respect RBAC permissions: hide menu items user doesn't have access to
+- **Invoices page** — Add "Send via WhatsApp" and "Send via Email" buttons on invoice detail/row actions
+- **P&L Report, GST Reports pages** — Add "Send via WhatsApp" and "Send via Email" action buttons
+- **App.tsx** — Add `/onboard`, `/onboard/quotation`, `/app/payment-checkout` routes
 
 ### Remove
 
-- Nothing removed from functionality; only dead packages removed
+- Nothing removed
 
 ## Implementation Plan
 
-1. Remove dead packages from `package.json`
-2. Create `src/utils/superuser.ts` — utility for superuser mode state (check/set/clear PIN, isActive)
-3. Create `src/pages/SuperuserSettingsPage.tsx` — SuperUser Settings page with PIN change, API key management, module toggles, backup settings, developer notes
-4. Create `src/components/FloatingCalculator.tsx` — professional calculator with memory, percentage, Indian number formatting, keyboard support
-5. Modify `LoginPage.tsx` — add hidden Developer Access trigger + PIN entry modal
-6. Modify `AppLayout.tsx` — add superuser badge, add SuperUser Settings nav item (conditional), add FloatingCalculator component
-7. Modify `App.tsx` — add route for `/superuser-settings`
-8. Validate and deploy
+1. Create `utils/rbac.ts` — RBAC permission store (localStorage), default permissions, check functions
+2. Create `utils/pricingConfig.ts` — Editable pricing store for SuperUser
+3. Create `utils/sendActions.ts` — WhatsApp/Email deep-link generators using Llama for AI drafting
+4. Create `utils/backupUtils.ts` — Export all localStorage data as JSON download
+5. Create `pages/OnboardingPortalPage.tsx` — Client management portal (SuperUser only)
+6. Create `pages/QuotationPage.tsx` — Quotation form + preview
+7. Create `pages/PaymentCheckoutPage.tsx` — Dummy payment checkout simulation
+8. Update `pages/SuperuserSettingsPage.tsx` — Add Subscription Pricing Editor + Backup Now button
+9. Update `pages/UsersPage.tsx` — Replace simple RBAC toggle with full module+feature matrix
+10. Update `components/AppLayout.tsx` — Apply RBAC to sidebar menu visibility
+11. Update `pages/InvoicesPage.tsx` — Add WhatsApp/Email send buttons
+12. Update `pages/PLReportPage.tsx` and `GstReportsPage.tsx` — Add WhatsApp/Email send buttons
+13. Update `App.tsx` — Register new routes

@@ -46,6 +46,9 @@ const UserManualPage = lazy(() => import("./pages/UserManualPage"));
 const SuperuserSettingsPage = lazy(
   () => import("./pages/SuperuserSettingsPage"),
 );
+const OnboardingPortalPage = lazy(() => import("./pages/OnboardingPortalPage"));
+const QuotationPage = lazy(() => import("./pages/QuotationPage"));
+const PaymentCheckoutPage = lazy(() => import("./pages/PaymentCheckoutPage"));
 
 function PageLoader() {
   return (
@@ -75,7 +78,7 @@ const layoutRoute = createRoute({
 
 const dashboardRoute = createRoute({
   getParentRoute: () => layoutRoute,
-  path: "/",
+  path: "/app",
   component: () => (
     <Suspense fallback={<PageLoader />}>
       <DashboardPage />
@@ -84,7 +87,7 @@ const dashboardRoute = createRoute({
 });
 const invoicesRoute = createRoute({
   getParentRoute: () => layoutRoute,
-  path: "/invoices",
+  path: "/app/invoices",
   component: () => (
     <Suspense fallback={<PageLoader />}>
       <InvoicesPage />
@@ -93,7 +96,7 @@ const invoicesRoute = createRoute({
 });
 const customersRoute = createRoute({
   getParentRoute: () => layoutRoute,
-  path: "/customers",
+  path: "/app/customers",
   component: () => (
     <Suspense fallback={<PageLoader />}>
       <CustomersPage />
@@ -102,7 +105,7 @@ const customersRoute = createRoute({
 });
 const vendorsRoute = createRoute({
   getParentRoute: () => layoutRoute,
-  path: "/vendors",
+  path: "/app/vendors",
   component: () => (
     <Suspense fallback={<PageLoader />}>
       <VendorsPage />
@@ -111,7 +114,7 @@ const vendorsRoute = createRoute({
 });
 const productsRoute = createRoute({
   getParentRoute: () => layoutRoute,
-  path: "/products",
+  path: "/app/products",
   component: () => (
     <Suspense fallback={<PageLoader />}>
       <ProductsPage />
@@ -120,7 +123,7 @@ const productsRoute = createRoute({
 });
 const expensesRoute = createRoute({
   getParentRoute: () => layoutRoute,
-  path: "/expenses",
+  path: "/app/expenses",
   component: () => (
     <Suspense fallback={<PageLoader />}>
       <ExpensesPage />
@@ -129,7 +132,7 @@ const expensesRoute = createRoute({
 });
 const gstReportsRoute = createRoute({
   getParentRoute: () => layoutRoute,
-  path: "/gst-reports",
+  path: "/app/gst-reports",
   component: () => (
     <Suspense fallback={<PageLoader />}>
       <GstReportsPage />
@@ -138,7 +141,7 @@ const gstReportsRoute = createRoute({
 });
 const ledgerRoute = createRoute({
   getParentRoute: () => layoutRoute,
-  path: "/ledger",
+  path: "/app/ledger",
   component: () => (
     <Suspense fallback={<PageLoader />}>
       <LedgerPage />
@@ -147,7 +150,7 @@ const ledgerRoute = createRoute({
 });
 const aiAssistantRoute = createRoute({
   getParentRoute: () => layoutRoute,
-  path: "/ai-assistant",
+  path: "/app/ai-assistant",
   component: () => (
     <Suspense fallback={<PageLoader />}>
       <AiAssistantPage />
@@ -156,7 +159,7 @@ const aiAssistantRoute = createRoute({
 });
 const subscriptionRoute = createRoute({
   getParentRoute: () => layoutRoute,
-  path: "/subscription",
+  path: "/app/subscription",
   component: () => (
     <Suspense fallback={<PageLoader />}>
       <SubscriptionPage />
@@ -165,7 +168,7 @@ const subscriptionRoute = createRoute({
 });
 const settingsRoute = createRoute({
   getParentRoute: () => layoutRoute,
-  path: "/settings",
+  path: "/app/settings",
   component: () => (
     <Suspense fallback={<PageLoader />}>
       <SettingsPage />
@@ -174,7 +177,7 @@ const settingsRoute = createRoute({
 });
 const bankAccountsRoute = createRoute({
   getParentRoute: () => layoutRoute,
-  path: "/bank-accounts",
+  path: "/app/bank-accounts",
   component: () => (
     <Suspense fallback={<PageLoader />}>
       <BankAccountsPage />
@@ -183,7 +186,7 @@ const bankAccountsRoute = createRoute({
 });
 const pettyCashRoute = createRoute({
   getParentRoute: () => layoutRoute,
-  path: "/petty-cash",
+  path: "/app/petty-cash",
   component: () => (
     <Suspense fallback={<PageLoader />}>
       <PettyCashPage />
@@ -192,7 +195,7 @@ const pettyCashRoute = createRoute({
 });
 const usersRoute = createRoute({
   getParentRoute: () => layoutRoute,
-  path: "/users",
+  path: "/app/users",
   component: () => (
     <Suspense fallback={<PageLoader />}>
       <UsersPage />
@@ -201,7 +204,7 @@ const usersRoute = createRoute({
 });
 const plReportRoute = createRoute({
   getParentRoute: () => layoutRoute,
-  path: "/reports/pl",
+  path: "/app/reports/pl",
   component: () => (
     <Suspense fallback={<PageLoader />}>
       <PLReportPage />
@@ -210,7 +213,7 @@ const plReportRoute = createRoute({
 });
 const balanceSheetRoute = createRoute({
   getParentRoute: () => layoutRoute,
-  path: "/reports/balance-sheet",
+  path: "/app/reports/balance-sheet",
   component: () => (
     <Suspense fallback={<PageLoader />}>
       <BalanceSheetPage />
@@ -220,7 +223,7 @@ const balanceSheetRoute = createRoute({
 
 const companyCategoriesRoute = createRoute({
   getParentRoute: () => layoutRoute,
-  path: "/company-categories",
+  path: "/app/company-categories",
   component: () => (
     <Suspense fallback={<PageLoader />}>
       <CompanyCategoriesPage />
@@ -230,7 +233,7 @@ const companyCategoriesRoute = createRoute({
 
 const tallyImportRoute = createRoute({
   getParentRoute: () => layoutRoute,
-  path: "/tally-import",
+  path: "/app/tally-import",
   component: () => (
     <Suspense fallback={<PageLoader />}>
       <TallyImportPage />
@@ -240,7 +243,7 @@ const tallyImportRoute = createRoute({
 
 const gstFilingRoute = createRoute({
   getParentRoute: () => layoutRoute,
-  path: "/gst-filing",
+  path: "/app/gst-filing",
   component: () => (
     <Suspense fallback={<PageLoader />}>
       <GstFilingPage />
@@ -250,7 +253,7 @@ const gstFilingRoute = createRoute({
 
 const b2bReconciliationRoute = createRoute({
   getParentRoute: () => layoutRoute,
-  path: "/b2b-reconciliation",
+  path: "/app/b2b-reconciliation",
   component: () => (
     <Suspense fallback={<PageLoader />}>
       <B2bReconciliationPage />
@@ -260,7 +263,7 @@ const b2bReconciliationRoute = createRoute({
 
 const userManualRoute = createRoute({
   getParentRoute: () => layoutRoute,
-  path: "/user-manual",
+  path: "/app/user-manual",
   component: () => (
     <Suspense fallback={<PageLoader />}>
       <UserManualPage />
@@ -270,10 +273,40 @@ const userManualRoute = createRoute({
 
 const superuserSettingsRoute = createRoute({
   getParentRoute: () => layoutRoute,
-  path: "/superuser-settings",
+  path: "/app/superuser-settings",
   component: () => (
     <Suspense fallback={<PageLoader />}>
       <SuperuserSettingsPage />
+    </Suspense>
+  ),
+});
+
+const onboardingPortalRoute = createRoute({
+  getParentRoute: () => layoutRoute,
+  path: "/app/onboard",
+  component: () => (
+    <Suspense fallback={<PageLoader />}>
+      <OnboardingPortalPage />
+    </Suspense>
+  ),
+});
+
+const quotationRoute = createRoute({
+  getParentRoute: () => layoutRoute,
+  path: "/app/onboard/quotation",
+  component: () => (
+    <Suspense fallback={<PageLoader />}>
+      <QuotationPage />
+    </Suspense>
+  ),
+});
+
+const paymentCheckoutRoute = createRoute({
+  getParentRoute: () => layoutRoute,
+  path: "/app/payment-checkout",
+  component: () => (
+    <Suspense fallback={<PageLoader />}>
+      <PaymentCheckoutPage />
     </Suspense>
   ),
 });
@@ -302,6 +335,9 @@ const routeTree = rootRoute.addChildren([
     b2bReconciliationRoute,
     userManualRoute,
     superuserSettingsRoute,
+    onboardingPortalRoute,
+    quotationRoute,
+    paymentCheckoutRoute,
   ]),
 ]);
 
@@ -362,17 +398,29 @@ function BusinessGate() {
   return <RouterProvider router={router} />;
 }
 
+// ─── Detect whether user is on a marketing or app path ────────────
+function isMarketingPath(): boolean {
+  if (typeof window === "undefined") return true;
+  const path = window.location.pathname;
+  // Show marketing site for root / and /marketing
+  return (
+    path === "/" || path === "/marketing" || path.startsWith("/marketing/")
+  );
+}
+
+function isAppPath(): boolean {
+  if (typeof window === "undefined") return false;
+  const path = window.location.pathname;
+  return path.startsWith("/app");
+}
+
 export default function App() {
   const [splashDone, setSplashDone] = useState(
     () => !!sessionStorage.getItem("splash_shown"),
   );
 
-  // Marketing site at /marketing — no auth required
-  const isMarketing =
-    typeof window !== "undefined" &&
-    window.location.pathname.startsWith("/marketing");
-
-  if (isMarketing) {
+  // Marketing site at / and /marketing — no auth required
+  if (isMarketingPath()) {
     return (
       <ThemeProvider>
         <MarketingLayout>
@@ -382,10 +430,22 @@ export default function App() {
     );
   }
 
+  // App paths under /app — require auth
+  if (isAppPath()) {
+    return (
+      <ThemeProvider>
+        {!splashDone && <SplashScreen onDone={() => setSplashDone(true)} />}
+        <AuthGate />
+      </ThemeProvider>
+    );
+  }
+
+  // Default fallback: show marketing
   return (
     <ThemeProvider>
-      {!splashDone && <SplashScreen onDone={() => setSplashDone(true)} />}
-      <AuthGate />
+      <MarketingLayout>
+        <MarketingPage />
+      </MarketingLayout>
     </ThemeProvider>
   );
 }

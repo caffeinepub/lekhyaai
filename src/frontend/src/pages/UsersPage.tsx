@@ -1,5 +1,6 @@
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
+import { Checkbox } from "@/components/ui/checkbox";
 import {
   Dialog,
   DialogContent,
@@ -43,161 +44,65 @@ import {
   X,
 } from "lucide-react";
 import { motion } from "motion/react";
-import { useEffect, useState } from "react";
+import { useState } from "react";
 import { toast } from "sonner";
 import { BusinessRole, type BusinessUserRole } from "../backend.d";
 import { useBusiness } from "../context/BusinessContext";
 import { useActor } from "../hooks/useActor";
 import { useInternetIdentity } from "../hooks/useInternetIdentity";
+import {
+  ALL_MODULES,
+  RBAC_MODULE_LABELS,
+  type RbacModule,
+  type RbacRole,
+  getCurrentUserRole,
+  getRbacPermissions,
+  hasPermission,
+  resetRbacPermissions,
+  saveRbacPermissions,
+  setCurrentUserRole,
+} from "../utils/rbac";
 
-// ─── Role Config ─────────────────────────────────────────────────
-const ROLE_CONFIG: Record<
-  BusinessRole,
-  {
-    label: string;
-    icon: React.ComponentType<{ className?: string }>;
-    badge: string;
-    description: string;
-  }
-> = {
-  [BusinessRole.admin]: {
-    label: "Admin",
-    icon: ShieldAlert,
-    badge:
-      "bg-red-100 text-red-700 border-red-200 dark:bg-red-900/30 dark:text-red-300",
-    description: "Full access — can manage users, settings, and all modules",
-  },
-  [BusinessRole.accountant]: {
-    label: "Accountant",
-    icon: ShieldCheck,
-    badge:
-      "bg-blue-100 text-blue-700 border-blue-200 dark:bg-blue-900/30 dark:text-blue-300",
-    description: "Can manage invoices, expenses, ledger, and reports",
-  },
-  [BusinessRole.ca]: {
-    label: "CA",
-    icon: Shield,
-    badge:
-      "bg-purple-100 text-purple-700 border-purple-200 dark:bg-purple-900/30 dark:text-purple-300",
-    description: "Chartered Accountant — read-only + GST report generation",
-  },
-};
-
-// Default permission matrix
-const DEFAULT_PERMISSION_MATRIX: PermissionRow[] = [
-  { feature: "View Dashboard", admin: true, accountant: true, ca: true },
-  {
-    feature: "Create / Edit Invoices",
-    admin: true,
-    accountant: true,
-    ca: false,
-  },
-  {
-    feature: "Create / Edit Expenses",
-    admin: true,
-    accountant: true,
-    ca: false,
-  },
-  {
-    feature: "Manage Customers / Vendors",
-    admin: true,
-    accountant: true,
-    ca: false,
-  },
-  { feature: "Post Journal Entries", admin: true, accountant: true, ca: false },
-  { feature: "Generate GST Reports", admin: true, accountant: true, ca: true },
-  { feature: "View Ledger & Reports", admin: true, accountant: true, ca: true },
-  { feature: "Manage Users", admin: true, accountant: false, ca: false },
-  { feature: "Business Settings", admin: true, accountant: false, ca: false },
-  { feature: "Bank Accounts", admin: true, accountant: true, ca: false },
-  { feature: "Export Reports", admin: true, accountant: true, ca: true },
-  { feature: "Petty Cash", admin: true, accountant: true, ca: false },
-  { feature: "Tally Import", admin: true, accountant: false, ca: false },
-  { feature: "GST Filing Calendar", admin: true, accountant: true, ca: true },
-  { feature: "B2B Reconciliation", admin: true, accountant: true, ca: false },
-  { feature: "AI Assistant", admin: true, accountant: true, ca: true },
-  {
-    feature: "Subscription & Billing",
-    admin: true,
-    accountant: false,
-    ca: false,
-  },
-  { feature: "Company Categories", admin: true, accountant: true, ca: false },
-];
-
-interface PermissionRow {
-  feature: string;
-  admin: boolean;
-  accountant: boolean;
-  ca: boolean;
-}
-
-const RBAC_STORAGE_KEY = "lekhyaai_rbac_matrix";
-
-function loadPermissions(): PermissionRow[] {
-  try {
-    const stored = localStorage.getItem(RBAC_STORAGE_KEY);
-    if (stored) {
-      const parsed = JSON.parse(stored) as PermissionRow[];
-      // Merge with defaults — new features added after save are included
-      const merged = DEFAULT_PERMISSION_MATRIX.map((def) => {
-        const saved = parsed.find((p) => p.feature === def.feature);
-        return saved ?? def;
-      });
-      return merged;
-    }
-  } catch {
-    // ignore
-  }
-  return DEFAULT_PERMISSION_MATRIX;
-}
-
-function savePermissions(matrix: PermissionRow[]) {
-  localStorage.setItem(RBAC_STORAGE_KEY, JSON.stringify(matrix));
-}
-
-// ─── Editable Permission Matrix ───────────────────────────────────
-function PermissionMatrix({ canEdit }: { canEdit: boolean }) {
+// ─── New Full RBAC Matrix Component ──────────────────────────────
+function FullRbacMatrix({ canEdit }: { canEdit: boolean }) {
+  const [perms, setPerms] = useState(() => getRbacPermissions());
   const [editMode, setEditMode] = useState(false);
-  const [matrix, setMatrix] = useState<PermissionRow[]>(loadPermissions);
-  const [draft, setDraft] = useState<PermissionRow[]>([]);
+  const [draft, setDraft] = useState(() => getRbacPermissions());
 
   function startEdit() {
-    setDraft(matrix.map((r) => ({ ...r })));
+    setDraft(getRbacPermissions());
     setEditMode(true);
   }
 
   function cancelEdit() {
-    setDraft([]);
     setEditMode(false);
   }
 
   function saveEdit() {
-    setMatrix(draft);
-    savePermissions(draft);
+    saveRbacPermissions(draft);
+    setPerms(draft);
     setEditMode(false);
-    setDraft([]);
-    toast.success("Permission matrix saved");
+    toast.success("Module permissions saved");
   }
 
-  function resetDefaults() {
-    if (!confirm("Reset all permissions to default values?")) return;
-    setMatrix(DEFAULT_PERMISSION_MATRIX);
-    savePermissions(DEFAULT_PERMISSION_MATRIX);
-    if (editMode) {
-      setDraft(DEFAULT_PERMISSION_MATRIX.map((r) => ({ ...r })));
-    }
+  function handleReset() {
+    if (!confirm("Reset all module permissions to defaults?")) return;
+    resetRbacPermissions();
+    const defaults = getRbacPermissions();
+    setPerms(defaults);
+    setDraft(defaults);
+    setEditMode(false);
     toast.success("Permissions reset to defaults");
   }
 
-  function toggleCell(idx: number, role: "admin" | "accountant" | "ca") {
-    if (!editMode) return;
-    setDraft((prev) =>
-      prev.map((row, i) => (i === idx ? { ...row, [role]: !row[role] } : row)),
-    );
+  function togglePerm(mod: RbacModule, role: "accountant" | "ca") {
+    setDraft((p) => ({
+      ...p,
+      [mod]: { ...p[mod], [role]: !p[mod][role] },
+    }));
   }
 
-  const displayMatrix = editMode ? draft : matrix;
+  const displayPerms = editMode ? draft : perms;
 
   return (
     <motion.div
@@ -208,11 +113,11 @@ function PermissionMatrix({ canEdit }: { canEdit: boolean }) {
     >
       <div className="px-5 py-4 border-b border-border flex items-start justify-between gap-2">
         <div>
-          <h3 className="font-semibold text-foreground">Role Permissions</h3>
+          <h3 className="font-semibold text-foreground">Module Permissions</h3>
           <p className="text-xs text-muted-foreground mt-0.5">
             {canEdit
-              ? "Click the edit button to customise what each role can access"
-              : "What each role can access in this business"}
+              ? "Control which modules each role can access"
+              : "Module access permissions for each role"}
           </p>
         </div>
         {canEdit && (
@@ -223,7 +128,7 @@ function PermissionMatrix({ canEdit }: { canEdit: boolean }) {
                   size="sm"
                   variant="outline"
                   data-ocid="rbac.reset.button"
-                  onClick={resetDefaults}
+                  onClick={handleReset}
                   className="gap-1.5 text-xs"
                 >
                   <RotateCcw className="w-3.5 h-3.5" />
@@ -258,7 +163,7 @@ function PermissionMatrix({ canEdit }: { canEdit: boolean }) {
                   className="gap-1.5 text-xs bg-primary text-primary-foreground"
                 >
                   <Save className="w-3.5 h-3.5" />
-                  Save Changes
+                  Save
                 </Button>
               </>
             )}
@@ -270,8 +175,8 @@ function PermissionMatrix({ canEdit }: { canEdit: boolean }) {
         <div className="px-5 py-3 bg-amber-50 dark:bg-amber-900/20 border-b border-amber-200 dark:border-amber-800 flex items-center gap-2">
           <Edit3 className="w-4 h-4 text-amber-600 flex-shrink-0" />
           <p className="text-xs text-amber-700 dark:text-amber-300">
-            Edit mode active — click any check/X cell to toggle. Admin column is
-            locked (always full access).
+            Edit mode — toggle checkboxes for Accountant and CA. Admin always
+            has full access.
           </p>
         </div>
       )}
@@ -280,97 +185,102 @@ function PermissionMatrix({ canEdit }: { canEdit: boolean }) {
         <table className="w-full text-sm">
           <thead>
             <tr className="border-b border-border bg-muted/30">
-              <th className="text-left px-5 py-3 text-xs font-medium text-muted-foreground">
-                Feature / Module
+              <th className="text-left px-5 py-3 text-xs font-medium text-muted-foreground min-w-[200px]">
+                Module
               </th>
-              {(["admin", "accountant", "ca"] as const).map((role) => {
-                const cfg = ROLE_CONFIG[role as BusinessRole];
-                return (
-                  <th
-                    key={role}
-                    className="text-center px-4 py-3 text-xs font-medium min-w-[90px]"
-                  >
-                    <Badge
-                      variant="outline"
-                      className={cn("text-xs", cfg.badge)}
-                    >
-                      {cfg.label}
-                    </Badge>
-                  </th>
-                );
-              })}
+              <th className="text-center px-4 py-3 text-xs font-medium min-w-[90px]">
+                <Badge
+                  variant="outline"
+                  className="bg-red-100 text-red-700 border-red-200 dark:bg-red-900/30 dark:text-red-300 text-xs"
+                >
+                  Admin
+                </Badge>
+              </th>
+              <th className="text-center px-4 py-3 text-xs font-medium min-w-[100px]">
+                <Badge
+                  variant="outline"
+                  className="bg-blue-100 text-blue-700 border-blue-200 dark:bg-blue-900/30 dark:text-blue-300 text-xs"
+                >
+                  Accountant
+                </Badge>
+              </th>
+              <th className="text-center px-4 py-3 text-xs font-medium min-w-[90px]">
+                <Badge
+                  variant="outline"
+                  className="bg-purple-100 text-purple-700 border-purple-200 dark:bg-purple-900/30 dark:text-purple-300 text-xs"
+                >
+                  CA
+                </Badge>
+              </th>
             </tr>
           </thead>
           <tbody>
-            {displayMatrix.map((row, idx) => (
+            {ALL_MODULES.map((mod, idx) => (
               <tr
-                key={row.feature}
+                key={mod}
                 className={cn(
                   "border-b border-border last:border-0 transition-colors",
                   idx % 2 === 0 && "bg-muted/5",
-                  editMode && "hover:bg-primary/5",
                 )}
-                data-ocid={`users.permissions.row.${idx + 1}`}
+                data-ocid={`rbac.module.row.${idx + 1}`}
               >
-                <td className="px-5 py-3 text-sm text-foreground">
-                  {row.feature}
+                <td className="px-5 py-2.5 text-sm text-foreground">
+                  {RBAC_MODULE_LABELS[mod]}
                 </td>
-                {(["admin", "accountant", "ca"] as const).map((role) => {
-                  const value = row[role];
-                  const isAdminCol = role === "admin";
-                  const clickable = editMode && !isAdminCol;
-                  return (
-                    <td
-                      key={role}
+                {/* Admin — always checked, locked */}
+                <td className="px-4 py-2.5 text-center">
+                  <span className="inline-flex items-center justify-center w-6 h-6 rounded-full bg-success/10">
+                    <Check className="w-4 h-4 text-success" />
+                  </span>
+                </td>
+                {/* Accountant */}
+                <td className="px-4 py-2.5 text-center">
+                  {editMode ? (
+                    <Checkbox
+                      data-ocid={`rbac.accountant.${mod}.checkbox`}
+                      checked={draft[mod].accountant}
+                      onCheckedChange={() => togglePerm(mod, "accountant")}
+                    />
+                  ) : (
+                    <span
                       className={cn(
-                        "px-4 py-3 text-center",
-                        clickable && "cursor-pointer select-none group",
+                        "inline-flex items-center justify-center w-6 h-6 rounded-full",
+                        displayPerms[mod].accountant
+                          ? "bg-success/10"
+                          : "bg-muted/40",
                       )}
-                      onClick={
-                        clickable ? () => toggleCell(idx, role) : undefined
-                      }
-                      onKeyDown={
-                        clickable
-                          ? (e) => {
-                              if (e.key === "Enter" || e.key === " ")
-                                toggleCell(idx, role);
-                            }
-                          : undefined
-                      }
-                      role={clickable ? "button" : undefined}
-                      tabIndex={clickable ? 0 : undefined}
-                      data-ocid={
-                        clickable
-                          ? `rbac.cell.${idx + 1}.${role}.toggle`
-                          : undefined
-                      }
                     >
-                      {value ? (
-                        <span
-                          className={cn(
-                            "inline-flex items-center justify-center w-6 h-6 rounded-full",
-                            clickable
-                              ? "bg-success/10 group-hover:bg-destructive/10 transition-colors"
-                              : "",
-                          )}
-                        >
-                          <Check className="w-4 h-4 text-success" />
-                        </span>
+                      {displayPerms[mod].accountant ? (
+                        <Check className="w-4 h-4 text-success" />
                       ) : (
-                        <span
-                          className={cn(
-                            "inline-flex items-center justify-center w-6 h-6 rounded-full",
-                            clickable
-                              ? "bg-muted/40 group-hover:bg-success/10 transition-colors"
-                              : "",
-                          )}
-                        >
-                          <X className="w-4 h-4 text-destructive/50" />
-                        </span>
+                        <X className="w-4 h-4 text-destructive/50" />
                       )}
-                    </td>
-                  );
-                })}
+                    </span>
+                  )}
+                </td>
+                {/* CA */}
+                <td className="px-4 py-2.5 text-center">
+                  {editMode ? (
+                    <Checkbox
+                      data-ocid={`rbac.ca.${mod}.checkbox`}
+                      checked={draft[mod].ca}
+                      onCheckedChange={() => togglePerm(mod, "ca")}
+                    />
+                  ) : (
+                    <span
+                      className={cn(
+                        "inline-flex items-center justify-center w-6 h-6 rounded-full",
+                        displayPerms[mod].ca ? "bg-success/10" : "bg-muted/40",
+                      )}
+                    >
+                      {displayPerms[mod].ca ? (
+                        <Check className="w-4 h-4 text-success" />
+                      ) : (
+                        <X className="w-4 h-4 text-destructive/50" />
+                      )}
+                    </span>
+                  )}
+                </td>
               </tr>
             ))}
           </tbody>
@@ -380,14 +290,46 @@ function PermissionMatrix({ canEdit }: { canEdit: boolean }) {
       {canEdit && (
         <div className="px-5 py-3 border-t border-border bg-muted/20">
           <p className="text-xs text-muted-foreground">
-            Changes are saved to this browser. Admin always has full access and
-            cannot be restricted.
+            Changes are saved to this browser. Admin always has full access.
           </p>
         </div>
       )}
     </motion.div>
   );
 }
+
+// ─── Role Config ─────────────────────────────────────────────────
+const ROLE_CONFIG: Record<
+  BusinessRole,
+  {
+    label: string;
+    icon: React.ComponentType<{ className?: string }>;
+    badge: string;
+    description: string;
+  }
+> = {
+  [BusinessRole.admin]: {
+    label: "Admin",
+    icon: ShieldAlert,
+    badge:
+      "bg-red-100 text-red-700 border-red-200 dark:bg-red-900/30 dark:text-red-300",
+    description: "Full access — can manage users, settings, and all modules",
+  },
+  [BusinessRole.accountant]: {
+    label: "Accountant",
+    icon: ShieldCheck,
+    badge:
+      "bg-blue-100 text-blue-700 border-blue-200 dark:bg-blue-900/30 dark:text-blue-300",
+    description: "Can manage invoices, expenses, ledger, and reports",
+  },
+  [BusinessRole.ca]: {
+    label: "CA",
+    icon: Shield,
+    badge:
+      "bg-purple-100 text-purple-700 border-purple-200 dark:bg-purple-900/30 dark:text-purple-300",
+    description: "Chartered Accountant — read-only + GST report generation",
+  },
+};
 
 // ─── Invite User Dialog ──────────────────────────────────────────
 function InviteUserDialog({
@@ -761,8 +703,46 @@ export default function UsersPage() {
         )}
       </div>
 
-      {/* Editable Permission Matrix */}
-      <PermissionMatrix canEdit={canManage} />
+      {/* My Role Section */}
+      <motion.div
+        initial={{ opacity: 0, y: 8 }}
+        animate={{ opacity: 1, y: 0 }}
+        transition={{ delay: 0.15 }}
+        className="bg-card border border-border rounded-xl p-4 mb-6"
+      >
+        <div className="flex items-start justify-between gap-4">
+          <div>
+            <p className="font-semibold text-foreground text-sm">
+              My Role (UI Preview)
+            </p>
+            <p className="text-xs text-muted-foreground mt-0.5">
+              Change to preview what each role sees in the sidebar. This does
+              not affect backend permissions.
+            </p>
+          </div>
+          <Select
+            value={getCurrentUserRole()}
+            onValueChange={(v) => {
+              setCurrentUserRole(v as RbacRole);
+              toast.success(`UI preview role set to ${v}`);
+              // Force re-render by changing page state
+              window.dispatchEvent(new Event("lekhya_role_change"));
+            }}
+          >
+            <SelectTrigger data-ocid="rbac.my_role.select" className="w-36">
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="admin">Admin</SelectItem>
+              <SelectItem value="accountant">Accountant</SelectItem>
+              <SelectItem value="ca">CA</SelectItem>
+            </SelectContent>
+          </Select>
+        </div>
+      </motion.div>
+
+      {/* Full Module RBAC Matrix */}
+      <FullRbacMatrix canEdit={canManage} />
 
       <InviteUserDialog
         open={inviteOpen}

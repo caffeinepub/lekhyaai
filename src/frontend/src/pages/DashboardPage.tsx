@@ -605,7 +605,7 @@ export default function DashboardPage() {
             </p>
           </div>
           <Link
-            to="/invoices"
+            to="/app/invoices"
             className="text-xs text-destructive underline whitespace-nowrap"
           >
             View all →
@@ -750,7 +750,7 @@ export default function DashboardPage() {
         <div className="flex items-center justify-between p-5 border-b border-border">
           <h3 className="font-semibold text-foreground">Recent Invoices</h3>
           <Link
-            to="/invoices"
+            to="/app/invoices"
             data-ocid="dashboard.view_all_invoices.link"
             className="text-sm text-primary hover:underline flex items-center gap-1"
           >
@@ -772,7 +772,7 @@ export default function DashboardPage() {
             >
               <Receipt className="w-8 h-8 text-muted-foreground/50" />
               <p className="text-muted-foreground text-sm">No invoices yet</p>
-              <Link to="/invoices">
+              <Link to="/app/invoices">
                 <Button size="sm" variant="outline" className="mt-1">
                   Create your first invoice
                 </Button>

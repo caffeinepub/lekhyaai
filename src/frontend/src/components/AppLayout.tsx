@@ -41,46 +41,147 @@ import { useState } from "react";
 import { useBusiness } from "../context/BusinessContext";
 import { useTheme } from "../context/ThemeContext";
 import { useInternetIdentity } from "../hooks/useInternetIdentity";
+import {
+  type RbacModule,
+  getCurrentUserRole,
+  hasPermission,
+} from "../utils/rbac";
 import { isSuperUserActive } from "../utils/superuser";
 import CreateBusinessModal from "./CreateBusinessModal";
 import FloatingAiWidget from "./FloatingAiWidget";
 import FloatingCalculator from "./FloatingCalculator";
 import MandalaDecor from "./MandalaDecor";
 
-const navItems = [
-  { path: "/", icon: LayoutDashboard, label: "Dashboard" },
-  { path: "/invoices", icon: FileText, label: "Invoices" },
-  { path: "/customers", icon: Users, label: "Customers" },
-  { path: "/vendors", icon: Truck, label: "Vendors" },
-  { path: "/products", icon: Package, label: "Products" },
-  { path: "/company-categories", icon: Tag, label: "Company Categories" },
-  { path: "/expenses", icon: Receipt, label: "Expenses" },
-  { path: "/bank-accounts", icon: Landmark, label: "Bank Accounts" },
-  { path: "/petty-cash", icon: Wallet, label: "Petty Cash" },
-  { path: "/ledger", icon: BookOpen, label: "Ledger" },
-  { path: "/gst-reports", icon: BarChart3, label: "GST Reports" },
-  { path: "/gst-filing", icon: CalendarCheck, label: "GST Filing" },
-  { path: "/b2b-reconciliation", icon: ArrowLeftRight, label: "B2B Reconcile" },
-  { path: "/reports/pl", icon: FileText, label: "P&L Report" },
+const navItems: {
+  path: string;
+  icon: React.ElementType;
+  label: string;
+  module: RbacModule;
+}[] = [
   {
-    path: "/reports/balance-sheet",
+    path: "/app",
+    icon: LayoutDashboard,
+    label: "Dashboard",
+    module: "dashboard",
+  },
+  {
+    path: "/app/invoices",
+    icon: FileText,
+    label: "Invoices",
+    module: "invoices",
+  },
+  {
+    path: "/app/customers",
+    icon: Users,
+    label: "Customers",
+    module: "customers",
+  },
+  { path: "/app/vendors", icon: Truck, label: "Vendors", module: "vendors" },
+  {
+    path: "/app/products",
+    icon: Package,
+    label: "Products",
+    module: "products",
+  },
+  {
+    path: "/app/company-categories",
+    icon: Tag,
+    label: "Company Categories",
+    module: "company-categories",
+  },
+  {
+    path: "/app/expenses",
+    icon: Receipt,
+    label: "Expenses",
+    module: "expenses",
+  },
+  {
+    path: "/app/bank-accounts",
+    icon: Landmark,
+    label: "Bank Accounts",
+    module: "bank-accounts",
+  },
+  {
+    path: "/app/petty-cash",
+    icon: Wallet,
+    label: "Petty Cash",
+    module: "petty-cash",
+  },
+  { path: "/app/ledger", icon: BookOpen, label: "Ledger", module: "ledger" },
+  {
+    path: "/app/gst-reports",
+    icon: BarChart3,
+    label: "GST Reports",
+    module: "gst-reports",
+  },
+  {
+    path: "/app/gst-filing",
+    icon: CalendarCheck,
+    label: "GST Filing",
+    module: "gst-filing",
+  },
+  {
+    path: "/app/b2b-reconciliation",
+    icon: ArrowLeftRight,
+    label: "B2B Reconcile",
+    module: "b2b-reconciliation",
+  },
+  {
+    path: "/app/reports/pl",
+    icon: FileText,
+    label: "P&L Report",
+    module: "pl-report",
+  },
+  {
+    path: "/app/reports/balance-sheet",
     icon: FileBarChart,
     label: "Balance Sheet",
+    module: "balance-sheet",
   },
-  { path: "/tally-import", icon: Import, label: "Tally Import" },
-  { path: "/ai-assistant", icon: Bot, label: "AI Assistant" },
-  { path: "/users", icon: UserCog, label: "Users & Access" },
-  { path: "/subscription", icon: CreditCard, label: "Subscription" },
-  { path: "/settings", icon: Settings, label: "Settings" },
-  { path: "/user-manual", icon: BookOpen, label: "User Manual" },
+  {
+    path: "/app/tally-import",
+    icon: Import,
+    label: "Tally Import",
+    module: "tally-import",
+  },
+  {
+    path: "/app/ai-assistant",
+    icon: Bot,
+    label: "AI Assistant",
+    module: "ai-assistant",
+  },
+  {
+    path: "/app/users",
+    icon: UserCog,
+    label: "Users & Access",
+    module: "users",
+  },
+  {
+    path: "/app/subscription",
+    icon: CreditCard,
+    label: "Subscription",
+    module: "subscriptions",
+  },
+  {
+    path: "/app/settings",
+    icon: Settings,
+    label: "Settings",
+    module: "settings",
+  },
+  {
+    path: "/app/user-manual",
+    icon: BookOpen,
+    label: "User Manual",
+    module: "user-manual",
+  },
 ];
 
 // Bottom nav items for mobile (primary 4 + More)
 const mobileBottomNav = [
-  { path: "/", icon: LayoutDashboard, label: "Home" },
-  { path: "/invoices", icon: FileText, label: "Invoices" },
-  { path: "/customers", icon: Users, label: "Customers" },
-  { path: "/ai-assistant", icon: Bot, label: "AI" },
+  { path: "/app", icon: LayoutDashboard, label: "Home" },
+  { path: "/app/invoices", icon: FileText, label: "Invoices" },
+  { path: "/app/customers", icon: Users, label: "Customers" },
+  { path: "/app/ai-assistant", icon: Bot, label: "AI" },
 ];
 
 export default function AppLayout() {
@@ -91,12 +192,31 @@ export default function AppLayout() {
   const [createBizOpen, setCreateBizOpen] = useState(false);
   const [moreOpen, setMoreOpen] = useState(false);
   const isSuperUser = isSuperUserActive();
+  const currentRole = getCurrentUserRole();
 
   // Build nav items dynamically — add SuperUser Settings if in dev mode
+  // Apply RBAC: hide items the current role doesn't have access to (SuperUser always sees all)
+  const filteredNavItems = navItems.filter(
+    (item) => isSuperUser || hasPermission(item.module, currentRole),
+  );
+
   const allNavItems = [
-    ...navItems,
+    ...filteredNavItems,
     ...(isSuperUser
-      ? [{ path: "/superuser-settings", icon: Shield, label: "Dev Settings" }]
+      ? [
+          {
+            path: "/app/superuser-settings",
+            icon: Shield,
+            label: "Dev Settings",
+            module: "settings" as RbacModule,
+          },
+          {
+            path: "/app/onboard",
+            icon: Shield,
+            label: "Onboard Portal",
+            module: "settings" as RbacModule,
+          },
+        ]
       : []),
   ];
 
@@ -224,8 +344,8 @@ export default function AppLayout() {
         <nav className="flex-1 overflow-y-auto py-3 px-3 scrollbar-thin">
           {allNavItems.map((item) => {
             const isActive =
-              item.path === "/"
-                ? location.pathname === "/"
+              item.path === "/app"
+                ? location.pathname === "/app" || location.pathname === "/app/"
                 : location.pathname.startsWith(item.path);
             return (
               <Link
@@ -339,8 +459,9 @@ export default function AppLayout() {
           <div className="flex items-center justify-around px-2 py-2">
             {mobileBottomNav.map((item) => {
               const isActive =
-                item.path === "/"
-                  ? location.pathname === "/"
+                item.path === "/app"
+                  ? location.pathname === "/app" ||
+                    location.pathname === "/app/"
                   : location.pathname.startsWith(item.path);
               return (
                 <Link
@@ -375,8 +496,9 @@ export default function AppLayout() {
               className={cn(
                 "flex flex-col items-center gap-1 py-1 px-3",
                 moreNavItems.some((n) =>
-                  n.path === "/"
-                    ? location.pathname === "/"
+                  n.path === "/app"
+                    ? location.pathname === "/app" ||
+                      location.pathname === "/app/"
                     : location.pathname.startsWith(n.path),
                 )
                   ? "text-primary"

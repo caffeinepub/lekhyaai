@@ -40,7 +40,7 @@ export default function MarketingLayout({ children }: MarketingLayoutProps) {
         >
           {/* Logo */}
           <a
-            href="/marketing"
+            href="/"
             data-ocid="marketing.nav.link"
             className="flex items-center gap-2.5 group"
           >
@@ -89,7 +89,7 @@ export default function MarketingLayout({ children }: MarketingLayoutProps) {
           {/* Access App CTA */}
           <div className="flex items-center gap-3">
             <a
-              href="/"
+              href="/app"
               data-ocid="marketing.nav.access_app_button"
               className="hidden sm:inline-flex items-center gap-2 px-4 py-2 rounded-xl bg-primary text-primary-foreground text-sm font-semibold shadow hover:opacity-90 transition-opacity"
             >
@@ -146,7 +146,7 @@ export default function MarketingLayout({ children }: MarketingLayoutProps) {
               </a>
             ))}
             <a
-              href="/"
+              href="/app"
               data-ocid="marketing.nav.mobile.access_app_button"
               className="mt-2 flex items-center justify-center gap-2 px-4 py-3 rounded-xl bg-primary text-primary-foreground text-sm font-semibold"
             >
@@ -199,7 +199,7 @@ export default function MarketingLayout({ children }: MarketingLayoutProps) {
                   { label: "Features", href: "#features" },
                   { label: "Pricing", href: "#pricing" },
                   { label: "Why LekhyaAI", href: "#why" },
-                  { label: "Access App", href: "/" },
+                  { label: "Access App", href: "/app" },
                 ].map((link) => (
                   <li key={link.label}>
                     <a

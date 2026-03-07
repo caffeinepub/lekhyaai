@@ -344,7 +344,7 @@ Be concise (2-4 sentences). Format money as ₹X,XX,XXX. Follow Indian GST laws.
                 </div>
                 <div className="flex items-center gap-1">
                   <Link
-                    to="/ai-assistant"
+                    to="/app/ai-assistant"
                     onClick={() => setIsOpen(false)}
                     className="p-1.5 rounded text-muted-foreground hover:text-foreground hover:bg-muted transition-colors"
                     title="Open full chat"
@@ -454,7 +454,7 @@ Be concise (2-4 sentences). Format money as ₹X,XX,XXX. Follow Indian GST laws.
                   </Button>
                 </form>
                 <Link
-                  to="/ai-assistant"
+                  to="/app/ai-assistant"
                   onClick={() => setIsOpen(false)}
                   className="block text-center text-[10px] text-primary hover:underline mt-1.5"
                   data-ocid="floating_ai.full_chat.link"

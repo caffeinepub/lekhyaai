@@ -9,16 +9,27 @@ import {
   Download,
   FileDown,
   FileText,
+  Loader2,
+  Mail,
+  MessageSquare,
   Printer,
   TrendingDown,
   TrendingUp,
 } from "lucide-react";
 import { motion } from "motion/react";
 import { useRef, useState } from "react";
+import { toast } from "sonner";
 import { useBusiness } from "../context/BusinessContext";
 import { useExpenses, useInvoices } from "../hooks/useQueries";
 import { downloadCSV, printElementAsPdf } from "../utils/exportUtils";
 import { formatINRNumber } from "../utils/formatINR";
+import { getCurrentUserRole, hasPermission } from "../utils/rbac";
+import {
+  draftEmailBody,
+  draftWhatsAppMessage,
+  openEmail,
+  openWhatsApp,
+} from "../utils/sendActions";
 
 // ─── Types ──────────────────────────────────────────────────────
 interface PLSection {
@@ -186,8 +197,56 @@ export default function PLReportPage() {
   const [generated, setGenerated] = useState(false);
   const [plData, setPlData] = useState<PLData | null>(null);
   const [basisMode, setBasisMode] = useState<"cash" | "accrual">("accrual");
+  const [sendingWA, setSendingWA] = useState(false);
+  const [sendingEmail, setSendingEmail] = useState(false);
+
+  const currentRole = getCurrentUserRole();
+  const canWhatsApp = hasPermission("whatsapp-send", currentRole);
+  const canEmail = hasPermission("email-send", currentRole);
 
   const isLoading = invLoading || expLoading;
+
+  async function handleSendWA() {
+    if (!plData || !activeBusiness) return;
+    setSendingWA(true);
+    try {
+      const message = await draftWhatsAppMessage("pl-report", {
+        period: `${plData.from} to ${plData.to}`,
+        businessName: activeBusiness.name,
+        revenue: plData.revenue.total.toFixed(2),
+        profit: plData.netProfit.toFixed(2),
+      });
+      openWhatsApp("", message);
+      toast.info("WhatsApp opened — share with the relevant contact");
+    } catch {
+      toast.error("Failed to draft WhatsApp message");
+    } finally {
+      setSendingWA(false);
+    }
+  }
+
+  async function handleSendEmail() {
+    if (!plData || !activeBusiness) return;
+    setSendingEmail(true);
+    try {
+      const body = await draftEmailBody("pl-report", {
+        period: `${plData.from} to ${plData.to}`,
+        businessName: activeBusiness.name,
+        revenue: plData.revenue.total.toFixed(2),
+        profit: plData.netProfit.toFixed(2),
+      });
+      openEmail(
+        "",
+        `P&L Report — ${activeBusiness.name} (${plData.from} to ${plData.to})`,
+        body,
+      );
+      toast.info("Email client opened — enter recipient address");
+    } catch {
+      toast.error("Failed to draft email");
+    } finally {
+      setSendingEmail(false);
+    }
+  }
 
   function handleGenerate() {
     if (!from || !to) return;
@@ -244,7 +303,41 @@ export default function PLReportPage() {
           </p>
         </div>
         {plData && (
-          <div className="flex items-center gap-2">
+          <div className="flex items-center gap-2 flex-wrap">
+            {canWhatsApp && (
+              <Button
+                variant="outline"
+                size="sm"
+                data-ocid="pl_report.whatsapp.button"
+                onClick={handleSendWA}
+                disabled={sendingWA}
+                className="gap-1.5 border-[#25D366]/40 text-[#25D366] hover:bg-[#25D366]/10"
+              >
+                {sendingWA ? (
+                  <Loader2 className="w-4 h-4 animate-spin" />
+                ) : (
+                  <MessageSquare className="w-4 h-4" />
+                )}
+                WhatsApp
+              </Button>
+            )}
+            {canEmail && (
+              <Button
+                variant="outline"
+                size="sm"
+                data-ocid="pl_report.email.button"
+                onClick={handleSendEmail}
+                disabled={sendingEmail}
+                className="gap-1.5"
+              >
+                {sendingEmail ? (
+                  <Loader2 className="w-4 h-4 animate-spin" />
+                ) : (
+                  <Mail className="w-4 h-4" />
+                )}
+                Email
+              </Button>
+            )}
             <Button
               variant="outline"
               size="sm"

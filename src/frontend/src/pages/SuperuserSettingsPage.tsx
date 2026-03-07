@@ -12,7 +12,9 @@ import { Switch } from "@/components/ui/switch";
 import { Textarea } from "@/components/ui/textarea";
 import {
   Bot,
+  CreditCard,
   Database,
+  Download,
   Eye,
   EyeOff,
   KeyRound,
@@ -26,6 +28,16 @@ import {
 } from "lucide-react";
 import { useState } from "react";
 import { toast } from "sonner";
+import {
+  exportAllDataAsJSON,
+  getLastBackupTime,
+  isBackupOverdue,
+} from "../utils/backupUtils";
+import {
+  type PricingConfig,
+  getPricingConfig,
+  savePricingConfig,
+} from "../utils/pricingConfig";
 import {
   type SuperUserConfig,
   changeSuperUserPin,
@@ -106,6 +118,34 @@ export default function SuperuserSettingsPage() {
     getSuperUserConfig(),
   );
   const [saving, setSaving] = useState(false);
+
+  // Pricing config state
+  const [pricing, setPricing] = useState<PricingConfig>(() =>
+    getPricingConfig(),
+  );
+  const [pricingSaving, setPricingSaving] = useState(false);
+
+  function setPricingField<K extends keyof PricingConfig>(
+    key: K,
+    value: PricingConfig[K],
+  ) {
+    setPricing((p) => ({ ...p, [key]: value }));
+  }
+
+  function handleSavePricing() {
+    setPricingSaving(true);
+    try {
+      savePricingConfig(pricing);
+      toast.success("Pricing configuration saved");
+    } finally {
+      setPricingSaving(false);
+    }
+  }
+
+  // Backup
+  const lastBackup = getLastBackupTime();
+  const backupOverdue =
+    config.autoBackupEnabled && isBackupOverdue(config.autoBackupFrequency);
 
   // PIN change state
   const [oldPin, setOldPin] = useState("");
@@ -507,6 +547,272 @@ export default function SuperuserSettingsPage() {
           rows={6}
           className="font-mono text-xs resize-none"
         />
+      </Section>
+
+      {/* Subscription Pricing Editor */}
+      <Section
+        icon={CreditCard}
+        title="Subscription Pricing Editor"
+        subtitle="These prices appear on the marketing website and quotation form"
+      >
+        <div className="space-y-4">
+          {/* Plan tiers */}
+          {(
+            [
+              { key: "starter", label: "Starter" },
+              { key: "professional", label: "Professional" },
+              { key: "enterprise", label: "Enterprise" },
+            ] as const
+          ).map(({ key, label }) => (
+            <div key={key} className="space-y-2">
+              <p className="text-sm font-medium text-foreground">
+                {label} Plan
+              </p>
+              <div className="grid gap-3 md:grid-cols-2">
+                <div className="space-y-1.5">
+                  <Label className="text-xs">Monthly (₹)</Label>
+                  <Input
+                    data-ocid={`superuser.pricing_${key}_monthly.input`}
+                    type="number"
+                    min={0}
+                    value={pricing[key].monthly}
+                    onChange={(e) =>
+                      setPricingField(key, {
+                        ...pricing[key],
+                        monthly: Number(e.target.value) || 0,
+                      })
+                    }
+                    className="font-mono"
+                  />
+                </div>
+                <div className="space-y-1.5">
+                  <Label className="text-xs">Annual (₹)</Label>
+                  <Input
+                    data-ocid={`superuser.pricing_${key}_annual.input`}
+                    type="number"
+                    min={0}
+                    value={pricing[key].annual}
+                    onChange={(e) =>
+                      setPricingField(key, {
+                        ...pricing[key],
+                        annual: Number(e.target.value) || 0,
+                      })
+                    }
+                    className="font-mono"
+                  />
+                </div>
+              </div>
+            </div>
+          ))}
+
+          {/* Per-unit rates */}
+          <div className="border-t border-border pt-3 grid gap-3 md:grid-cols-2">
+            <div className="space-y-1.5">
+              <Label className="text-sm">Per Additional User/Month (₹)</Label>
+              <Input
+                data-ocid="superuser.pricing_per_user.input"
+                type="number"
+                min={0}
+                value={pricing.perUser}
+                onChange={(e) =>
+                  setPricingField("perUser", Number(e.target.value) || 0)
+                }
+                className="font-mono"
+              />
+            </div>
+            <div className="space-y-1.5">
+              <Label className="text-sm">Per Invoice above limit (₹)</Label>
+              <Input
+                data-ocid="superuser.pricing_per_invoice.input"
+                type="number"
+                min={0}
+                value={pricing.perInvoice}
+                onChange={(e) =>
+                  setPricingField("perInvoice", Number(e.target.value) || 0)
+                }
+                className="font-mono"
+              />
+            </div>
+          </div>
+
+          {/* Tally Import tiers */}
+          <div className="border-t border-border pt-3">
+            <p className="text-sm font-medium text-foreground mb-3">
+              Tally Import Pricing (₹)
+            </p>
+            <div className="grid gap-3 md:grid-cols-3">
+              <div className="space-y-1.5">
+                <Label className="text-xs">100 Records</Label>
+                <Input
+                  data-ocid="superuser.pricing_tally_100.input"
+                  type="number"
+                  min={0}
+                  value={pricing.tallyImport.records100}
+                  onChange={(e) =>
+                    setPricingField("tallyImport", {
+                      ...pricing.tallyImport,
+                      records100: Number(e.target.value) || 0,
+                    })
+                  }
+                  className="font-mono"
+                />
+              </div>
+              <div className="space-y-1.5">
+                <Label className="text-xs">500 Records</Label>
+                <Input
+                  data-ocid="superuser.pricing_tally_500.input"
+                  type="number"
+                  min={0}
+                  value={pricing.tallyImport.records500}
+                  onChange={(e) =>
+                    setPricingField("tallyImport", {
+                      ...pricing.tallyImport,
+                      records500: Number(e.target.value) || 0,
+                    })
+                  }
+                  className="font-mono"
+                />
+              </div>
+              <div className="space-y-1.5">
+                <Label className="text-xs">Unlimited</Label>
+                <Input
+                  data-ocid="superuser.pricing_tally_unlimited.input"
+                  type="number"
+                  min={0}
+                  value={pricing.tallyImport.recordsUnlimited}
+                  onChange={(e) =>
+                    setPricingField("tallyImport", {
+                      ...pricing.tallyImport,
+                      recordsUnlimited: Number(e.target.value) || 0,
+                    })
+                  }
+                  className="font-mono"
+                />
+              </div>
+            </div>
+          </div>
+
+          {/* Dev + Server + GST */}
+          <div className="border-t border-border pt-3 grid gap-3 md:grid-cols-3">
+            <div className="space-y-1.5">
+              <Label className="text-sm">Dev Charges One-Time (₹)</Label>
+              <Input
+                data-ocid="superuser.pricing_dev_charges.input"
+                type="number"
+                min={0}
+                value={pricing.devChargesOneTime}
+                onChange={(e) =>
+                  setPricingField(
+                    "devChargesOneTime",
+                    Number(e.target.value) || 0,
+                  )
+                }
+                className="font-mono"
+              />
+            </div>
+            <div className="space-y-1.5">
+              <Label className="text-sm">Server Monthly (₹)</Label>
+              <Input
+                data-ocid="superuser.pricing_server_monthly.input"
+                type="number"
+                min={0}
+                value={pricing.serverMonthly}
+                onChange={(e) =>
+                  setPricingField("serverMonthly", Number(e.target.value) || 0)
+                }
+                className="font-mono"
+              />
+            </div>
+            <div className="space-y-1.5">
+              <Label className="text-sm">GST Rate (%)</Label>
+              <Input
+                data-ocid="superuser.pricing_gst_rate.input"
+                type="number"
+                min={0}
+                max={100}
+                value={pricing.gstRate}
+                onChange={(e) =>
+                  setPricingField("gstRate", Number(e.target.value) || 18)
+                }
+                className="font-mono"
+              />
+            </div>
+          </div>
+
+          <Button
+            data-ocid="superuser.save_pricing.button"
+            onClick={handleSavePricing}
+            disabled={pricingSaving}
+            size="sm"
+            className="w-full md:w-auto"
+          >
+            {pricingSaving ? (
+              <div className="w-4 h-4 rounded-full border-2 border-primary-foreground border-t-transparent animate-spin mr-2" />
+            ) : (
+              <Save className="w-4 h-4 mr-2" />
+            )}
+            Save Pricing
+          </Button>
+        </div>
+      </Section>
+
+      {/* Data Backup */}
+      <Section
+        icon={Database}
+        title="Data Backup"
+        subtitle="Export all account data as a JSON file"
+      >
+        <div className="space-y-3">
+          {lastBackup ? (
+            <div
+              className={`rounded-lg p-3 text-xs flex items-center gap-2 ${
+                backupOverdue
+                  ? "bg-amber-50 dark:bg-amber-950/20 border border-amber-200 dark:border-amber-800 text-amber-800 dark:text-amber-200"
+                  : "bg-success/10 border border-success/20 text-success"
+              }`}
+              data-ocid="superuser.backup.status"
+            >
+              <Database className="w-4 h-4 flex-shrink-0" />
+              <span>
+                Last backup:{" "}
+                {new Date(lastBackup).toLocaleString("en-IN", {
+                  day: "2-digit",
+                  month: "short",
+                  year: "numeric",
+                  hour: "2-digit",
+                  minute: "2-digit",
+                })}
+                {backupOverdue && " — Backup overdue!"}
+              </span>
+            </div>
+          ) : (
+            <div
+              className="bg-amber-50 dark:bg-amber-950/20 border border-amber-200 dark:border-amber-800 rounded-lg p-3 text-xs text-amber-800 dark:text-amber-200 flex items-center gap-2"
+              data-ocid="superuser.backup.warning_state"
+            >
+              <Database className="w-4 h-4 flex-shrink-0" />
+              No backup has been taken yet. Download your first backup now.
+            </div>
+          )}
+
+          <Button
+            data-ocid="superuser.backup_now.button"
+            onClick={() => {
+              exportAllDataAsJSON();
+              toast.success("Backup downloaded successfully");
+            }}
+            variant="outline"
+            className="gap-2"
+          >
+            <Download className="w-4 h-4" />
+            Download Backup Now
+          </Button>
+
+          <p className="text-xs text-muted-foreground">
+            Downloads all localStorage data as a JSON file. Store it securely
+            for data recovery.
+          </p>
+        </div>
       </Section>
 
       {/* Save */}

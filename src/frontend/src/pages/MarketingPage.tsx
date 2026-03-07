@@ -866,7 +866,7 @@ export default function MarketingPage() {
               className="flex flex-col sm:flex-row gap-4"
             >
               <a
-                href="/"
+                href="/app"
                 data-ocid="marketing.hero.access_app_button"
                 className="inline-flex items-center justify-center gap-2 px-8 py-4 rounded-2xl text-base font-semibold transition-all"
                 style={{
@@ -1372,7 +1372,7 @@ export default function MarketingPage() {
                 </ul>
 
                 <a
-                  href="/"
+                  href="/app"
                   data-ocid="marketing.pricing.get_started_button"
                   className={cn(
                     "block text-center px-6 py-3 rounded-xl font-semibold text-sm transition-all",
@@ -1547,7 +1547,7 @@ export default function MarketingPage() {
 
               <div className="mt-6">
                 <a
-                  href="/"
+                  href="/app"
                   data-ocid="marketing.contact.start_button"
                   className="inline-flex items-center justify-center gap-2 w-full px-8 py-4 rounded-xl bg-primary text-primary-foreground text-base font-semibold hover:opacity-90 transition-opacity shadow-md"
                 >
@@ -1622,7 +1622,7 @@ export default function MarketingPage() {
               className="flex flex-col sm:flex-row gap-4 justify-center"
             >
               <a
-                href="/"
+                href="/app"
                 data-ocid="marketing.cta.access_app_button"
                 className="inline-flex items-center justify-center gap-2 px-8 py-4 rounded-2xl text-base font-semibold"
                 style={{

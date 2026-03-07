@@ -445,7 +445,7 @@ Always be professional but friendly. Format financial outputs as ₹ X,XX,XXX`;
               <div className="flex-1 min-w-0">
                 <p className="text-xs text-warning font-medium">
                   Configure your free Groq API key in{" "}
-                  <Link to="/settings" className="underline font-semibold">
+                  <Link to="/app/settings" className="underline font-semibold">
                     Settings &gt; AI Engine
                   </Link>{" "}
                   to enable live Llama AI responses. Get your key at{" "}

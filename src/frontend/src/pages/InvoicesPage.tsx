@@ -19,6 +19,7 @@ import { cn } from "@/lib/utils";
 import {
   CreditCard,
   Loader2,
+  Mail,
   MessageSquare,
   Plus,
   ScanLine,
@@ -61,6 +62,13 @@ import {
   formatINR,
 } from "../utils/formatINR";
 import { GST_RATES } from "../utils/indianStates";
+import { getCurrentUserRole, hasPermission } from "../utils/rbac";
+import {
+  draftEmailBody,
+  draftWhatsAppMessage,
+  openEmail,
+  openWhatsApp,
+} from "../utils/sendActions";
 
 function StatusBadge({ status }: { status: InvoiceStatus }) {
   const map: Record<InvoiceStatus, { cls: string; label: string }> = {
@@ -832,6 +840,70 @@ export default function InvoicesPage() {
   const [deleteId, setDeleteId] = useState<bigint | null>(null);
   const [search, setSearch] = useState("");
   const [statusFilter, setStatusFilter] = useState<StatusFilter>("all");
+  const [sendingWA, setSendingWA] = useState<string | null>(null);
+  const [sendingEmail, setSendingEmail] = useState<string | null>(null);
+
+  const currentRole = getCurrentUserRole();
+  const canWhatsApp = hasPermission("whatsapp-send", currentRole);
+  const canEmail = hasPermission("email-send", currentRole);
+
+  async function handleSendWhatsApp(inv: Invoice) {
+    const cust = customerMap.get(inv.customerId.toString());
+    const phone = cust?.phone ?? "";
+    if (!phone) {
+      toast.error("No phone number for this customer. Add it in Customers.");
+      return;
+    }
+    setSendingWA(inv.id.toString());
+    try {
+      const message = await draftWhatsAppMessage("invoice", {
+        invoiceNumber: inv.invoiceNumber,
+        customerName: cust?.name ?? "",
+        totalAmount: (Number(inv.totalAmount) / 100).toFixed(2),
+        dueDate: new Date(Number(inv.dueDate / 1_000_000n)).toLocaleDateString(
+          "en-IN",
+        ),
+        businessName: activeBusiness?.name ?? "LekhyaAI",
+        status: inv.status,
+      });
+      openWhatsApp(phone, message);
+    } catch {
+      toast.error("Failed to draft WhatsApp message");
+    } finally {
+      setSendingWA(null);
+    }
+  }
+
+  async function handleSendEmail(inv: Invoice) {
+    const cust = customerMap.get(inv.customerId.toString());
+    const email = cust?.email ?? "";
+    if (!email) {
+      toast.error("No email address for this customer. Add it in Customers.");
+      return;
+    }
+    setSendingEmail(inv.id.toString());
+    try {
+      const body = await draftEmailBody("invoice", {
+        invoiceNumber: inv.invoiceNumber,
+        customerName: cust?.name ?? "",
+        totalAmount: (Number(inv.totalAmount) / 100).toFixed(2),
+        dueDate: new Date(Number(inv.dueDate / 1_000_000n)).toLocaleDateString(
+          "en-IN",
+        ),
+        businessName: activeBusiness?.name ?? "LekhyaAI",
+        status: inv.status,
+      });
+      openEmail(
+        email,
+        `Invoice ${inv.invoiceNumber} from ${activeBusiness?.name ?? "LekhyaAI"}`,
+        body,
+      );
+    } catch {
+      toast.error("Failed to draft email");
+    } finally {
+      setSendingEmail(null);
+    }
+  }
 
   const customerMap = new Map(customers.map((c) => [c.id.toString(), c]));
 
@@ -1170,6 +1242,38 @@ export default function InvoicesPage() {
                               className="text-xs px-2 py-1 rounded bg-info/10 text-info hover:bg-info/20 transition-colors font-medium"
                             >
                               Send
+                            </button>
+                          )}
+                          {canWhatsApp && (
+                            <button
+                              type="button"
+                              data-ocid={`invoices.whatsapp.button.${idx + 1}`}
+                              onClick={() => handleSendWhatsApp(inv)}
+                              disabled={sendingWA === inv.id.toString()}
+                              className="text-muted-foreground hover:text-[#25D366] transition-colors p-1 rounded hover:bg-[#25D366]/10"
+                              title="Send via WhatsApp"
+                            >
+                              {sendingWA === inv.id.toString() ? (
+                                <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                              ) : (
+                                <MessageSquare className="w-3.5 h-3.5" />
+                              )}
+                            </button>
+                          )}
+                          {canEmail && (
+                            <button
+                              type="button"
+                              data-ocid={`invoices.email.button.${idx + 1}`}
+                              onClick={() => handleSendEmail(inv)}
+                              disabled={sendingEmail === inv.id.toString()}
+                              className="text-muted-foreground hover:text-primary transition-colors p-1 rounded hover:bg-primary/10"
+                              title="Send via Email"
+                            >
+                              {sendingEmail === inv.id.toString() ? (
+                                <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                              ) : (
+                                <Mail className="w-3.5 h-3.5" />
+                              )}
                             </button>
                           )}
                           <button

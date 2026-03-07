@@ -13,8 +13,9 @@ import {
   BarChart3,
   ChevronDown,
   ChevronRight,
-  FileDown,
   Loader2,
+  Mail,
+  MessageSquare,
   RefreshCw,
 } from "lucide-react";
 import { motion } from "motion/react";
@@ -23,6 +24,13 @@ import { toast } from "sonner";
 import { useBusiness } from "../context/BusinessContext";
 import { useActor } from "../hooks/useActor";
 import { dateStringToNs, formatINR, formatINRNumber } from "../utils/formatINR";
+import { getCurrentUserRole, hasPermission } from "../utils/rbac";
+import {
+  draftEmailBody,
+  draftWhatsAppMessage,
+  openEmail,
+  openWhatsApp,
+} from "../utils/sendActions";
 
 type Period =
   | "current-month"
@@ -124,6 +132,9 @@ export default function GstReportsPage() {
   const [loading, setLoading] = useState(false);
   const [report, setReport] = useState<ReportData | null>(null);
   const [showDetails, setShowDetails] = useState(false);
+  const [sendingWA, setSendingWA] = useState(false);
+  const [sendingEmail, setSendingEmail] = useState(false);
+  const currentRole = getCurrentUserRole();
 
   const dates =
     period !== "custom"
@@ -208,6 +219,46 @@ export default function GstReportsPage() {
       toast.error("Failed to generate report. Please try again.");
     } finally {
       setLoading(false);
+    }
+  }
+
+  async function handleSendWA() {
+    if (!report) return;
+    setSendingWA(true);
+    try {
+      const msg = await draftWhatsAppMessage("gst-report", {
+        period: report.period,
+        outputGst: formatINR(report.outputGst),
+        inputGst: formatINR(report.inputGst),
+        netGst: formatINR(report.netPayable),
+        businessName: "Your Business",
+      });
+      openWhatsApp("", msg);
+      toast.info("WhatsApp opened — enter the recipient's number in WhatsApp.");
+    } catch {
+      toast.error("Failed to draft WhatsApp message.");
+    } finally {
+      setSendingWA(false);
+    }
+  }
+
+  async function handleSendEmail() {
+    if (!report) return;
+    setSendingEmail(true);
+    try {
+      const body = await draftEmailBody("gst-report", {
+        period: report.period,
+        outputGst: formatINR(report.outputGst),
+        inputGst: formatINR(report.inputGst),
+        netGst: formatINR(report.netPayable),
+        businessName: "Your Business",
+      });
+      openEmail("", `GST Report — ${report.period}`, body);
+      toast.info("Email client opened — enter the recipient's address.");
+    } catch {
+      toast.error("Failed to draft email.");
+    } finally {
+      setSendingEmail(false);
     }
   }
 
@@ -314,14 +365,50 @@ export default function GstReportsPage() {
           className="bg-card rounded-xl shadow-card border border-border p-6"
           data-ocid="gst_reports.result_card"
         >
-          <div className="flex items-center justify-between mb-6">
+          <div className="flex items-start justify-between mb-6 gap-3 flex-wrap">
             <div>
               <h3 className="font-semibold text-foreground">GST Summary</h3>
               <p className="text-muted-foreground text-sm">{report.period}</p>
             </div>
-            <div className="flex items-center gap-2 text-xs text-muted-foreground">
-              <BarChart3 className="w-4 h-4" />
-              <span>GSTR-3B Format</span>
+            <div className="flex items-center gap-2">
+              <div className="flex items-center gap-1 text-xs text-muted-foreground mr-1">
+                <BarChart3 className="w-4 h-4" />
+                <span className="hidden sm:inline">GSTR-3B Format</span>
+              </div>
+              {hasPermission("whatsapp-send", currentRole) && (
+                <Button
+                  variant="outline"
+                  size="sm"
+                  data-ocid="gst_reports.whatsapp_button"
+                  onClick={handleSendWA}
+                  disabled={sendingWA}
+                  className="gap-1.5 text-xs text-green-600 border-green-200 hover:bg-green-50 hover:text-green-700"
+                >
+                  {sendingWA ? (
+                    <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                  ) : (
+                    <MessageSquare className="w-3.5 h-3.5" />
+                  )}
+                  WhatsApp
+                </Button>
+              )}
+              {hasPermission("email-send", currentRole) && (
+                <Button
+                  variant="outline"
+                  size="sm"
+                  data-ocid="gst_reports.email_button"
+                  onClick={handleSendEmail}
+                  disabled={sendingEmail}
+                  className="gap-1.5 text-xs"
+                >
+                  {sendingEmail ? (
+                    <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                  ) : (
+                    <Mail className="w-3.5 h-3.5" />
+                  )}
+                  Email
+                </Button>
+              )}
             </div>
           </div>
 

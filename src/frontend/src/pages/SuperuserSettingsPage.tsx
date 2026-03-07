@@ -1,3 +1,4 @@
+import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -26,8 +27,9 @@ import {
   Shield,
   Smartphone,
 } from "lucide-react";
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { toast } from "sonner";
+import { useActor } from "../hooks/useActor";
 import {
   exportAllDataAsJSON,
   getLastBackupTime,
@@ -119,6 +121,39 @@ export default function SuperuserSettingsPage() {
   );
   const [saving, setSaving] = useState(false);
 
+  // Stripe backend status
+  const { actor, isFetching: actorFetching } = useActor();
+  const [stripeConfigured, setStripeConfigured] = useState<boolean | null>(
+    null,
+  );
+  const [stripeSaving, setStripeSaving] = useState(false);
+
+  useEffect(() => {
+    if (!actor || actorFetching) return;
+    actor
+      .isStripeConfigured()
+      .then((v) => setStripeConfigured(v))
+      .catch(() => setStripeConfigured(false));
+  }, [actor, actorFetching]);
+
+  async function handleSaveStripeBackend() {
+    if (!actor || !config.paymentGatewaySecret) return;
+    setStripeSaving(true);
+    try {
+      await actor.setStripeConfiguration({
+        secretKey: config.paymentGatewaySecret,
+        allowedCountries: ["IN"],
+      });
+      toast.success("Stripe configured on backend");
+      const v = await actor.isStripeConfigured();
+      setStripeConfigured(v);
+    } catch {
+      toast.error("Failed to save Stripe configuration to backend");
+    } finally {
+      setStripeSaving(false);
+    }
+  }
+
   // Pricing config state
   const [pricing, setPricing] = useState<PricingConfig>(() =>
     getPricingConfig(),
@@ -170,7 +205,7 @@ export default function SuperuserSettingsPage() {
     }
   }
 
-  function handlePinChange() {
+  async function handlePinChange() {
     if (!oldPin || !newPin || !confirmPin) {
       toast.error("Please fill all PIN fields");
       return;
@@ -185,7 +220,7 @@ export default function SuperuserSettingsPage() {
     }
     setPinSaving(true);
     try {
-      const ok = changeSuperUserPin(oldPin, newPin);
+      const ok = await changeSuperUserPin(oldPin, newPin);
       if (ok) {
         toast.success("Developer PIN changed successfully");
         setOldPin("");
@@ -439,6 +474,32 @@ export default function SuperuserSettingsPage() {
         title="Payment Gateway"
         subtitle="Used for subscription billing on the LekhyaAI website"
       >
+        {/* Backend Stripe status */}
+        <div
+          className="flex items-center justify-between bg-muted/40 rounded-xl px-4 py-3 border border-border"
+          data-ocid="superuser.stripe_backend_status.card"
+        >
+          <div className="flex items-center gap-2">
+            <CreditCard className="w-4 h-4 text-muted-foreground" />
+            <span className="text-sm font-medium text-foreground">
+              Stripe Backend Status
+            </span>
+          </div>
+          {stripeConfigured === null ? (
+            <Badge variant="outline" className="text-xs">
+              Checking…
+            </Badge>
+          ) : stripeConfigured ? (
+            <Badge className="bg-success/15 text-success border border-success/30 text-xs font-semibold">
+              Backend: Configured
+            </Badge>
+          ) : (
+            <Badge className="bg-amber-100 text-amber-700 border border-amber-200 dark:bg-amber-900/20 dark:text-amber-300 dark:border-amber-800 text-xs font-semibold">
+              Backend: Not Set
+            </Badge>
+          )}
+        </div>
+
         <ApiKeyField
           label="Payment Gateway API Key (Public)"
           value={config.paymentGatewayKey}
@@ -450,14 +511,36 @@ export default function SuperuserSettingsPage() {
           label="Payment Gateway Secret Key"
           value={config.paymentGatewaySecret}
           onChange={(v) => setField("paymentGatewaySecret", v)}
-          placeholder="Secret key"
+          placeholder="sk_live_... or sk_test_..."
           ocid="superuser.payment_secret.input"
         />
         <div className="bg-muted/50 rounded-lg p-3 text-xs text-muted-foreground">
           Supports Razorpay and Stripe format keys. The checkout UI
           automatically detects the provider from the key prefix (rzp_ =
-          Razorpay, pk_ = Stripe).
+          Razorpay, pk_ = Stripe). The secret key is saved to the backend
+          canister for server-side checkout session creation.
         </div>
+        <Button
+          data-ocid="superuser.save_stripe_backend.button"
+          onClick={handleSaveStripeBackend}
+          disabled={
+            stripeSaving || !config.paymentGatewaySecret || actorFetching
+          }
+          variant="outline"
+          className="w-full border-primary/30 text-primary hover:bg-primary/5"
+        >
+          {stripeSaving ? (
+            <>
+              <span className="mr-2 h-4 w-4 animate-spin inline-block border-2 border-current border-t-transparent rounded-full" />
+              Saving to Backend…
+            </>
+          ) : (
+            <>
+              <Save className="w-4 h-4 mr-2" />
+              Save Stripe Secret to Backend
+            </>
+          )}
+        </Button>
       </Section>
 
       {/* Cloud Services */}
@@ -473,6 +556,85 @@ export default function SuperuserSettingsPage() {
           placeholder="AIzaSy..."
           ocid="superuser.gcp_key.input"
         />
+      </Section>
+
+      {/* Custom Database — Server Config */}
+      <Section
+        icon={Database}
+        title="Custom Database — Server Config"
+        subtitle="Production-grade database configuration (not visible to regular users)"
+      >
+        <div className="space-y-4">
+          <ApiKeyField
+            label="DB Connection String / API URL"
+            value={config.dbConnectionString}
+            onChange={(v) => setField("dbConnectionString", v)}
+            placeholder="postgres://user:pass@host:5432/db or https://api.example.com"
+            ocid="superuser.db_connection.input"
+          />
+          <ApiKeyField
+            label="DB API Key / Service Account Key"
+            value={config.dbApiKey}
+            onChange={(v) => setField("dbApiKey", v)}
+            placeholder="Bearer token, service account key, or anon key"
+            ocid="superuser.db_api_key.input"
+          />
+          <div className="space-y-1.5">
+            <Label className="text-sm">Webhook URL for Push Sync</Label>
+            <Input
+              data-ocid="superuser.db_webhook.input"
+              type="url"
+              value={config.dbWebhookUrl}
+              onChange={(e) => setField("dbWebhookUrl", e.target.value)}
+              placeholder="https://your-server.com/webhook/lekhya"
+            />
+          </div>
+          <ApiKeyField
+            label="Webhook Secret"
+            value={config.dbWebhookSecret}
+            onChange={(v) => setField("dbWebhookSecret", v)}
+            placeholder="Webhook signing secret"
+            ocid="superuser.db_webhook_secret.input"
+          />
+          <div className="space-y-2">
+            <Label className="text-sm font-medium">Sync Triggers</Label>
+            <p className="text-xs text-muted-foreground">
+              Automatically push data to the external database when:
+            </p>
+            <div className="space-y-2.5">
+              {[
+                {
+                  key: "dbSyncOnInvoice",
+                  label: "On Invoice Create / Update",
+                  ocid: "superuser.db_sync_invoice.switch",
+                },
+                {
+                  key: "dbSyncOnExpense",
+                  label: "On Expense Create",
+                  ocid: "superuser.db_sync_expense.switch",
+                },
+                {
+                  key: "dbSyncOnPayment",
+                  label: "On Payment Record",
+                  ocid: "superuser.db_sync_payment.switch",
+                },
+              ].map(({ key, label, ocid }) => (
+                <div key={key} className="flex items-center justify-between">
+                  <Label className="text-sm text-muted-foreground cursor-pointer">
+                    {label}
+                  </Label>
+                  <Switch
+                    data-ocid={ocid}
+                    checked={!!config[key as keyof typeof config]}
+                    onCheckedChange={(v) =>
+                      setField(key as keyof typeof config, v)
+                    }
+                  />
+                </div>
+              ))}
+            </div>
+          </div>
+        </div>
       </Section>
 
       {/* Auto Backup */}

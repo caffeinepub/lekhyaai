@@ -9,6 +9,7 @@ import {
 import { Suspense, lazy, useState } from "react";
 import AppLayout from "./components/AppLayout";
 import MarketingLayout from "./components/MarketingLayout";
+import RbacGuard from "./components/RbacGuard";
 import SplashScreen from "./components/SplashScreen";
 import { BusinessProvider, useBusiness } from "./context/BusinessContext";
 import { ThemeProvider } from "./context/ThemeContext";
@@ -91,7 +92,9 @@ const invoicesRoute = createRoute({
   path: "/app/invoices",
   component: () => (
     <Suspense fallback={<PageLoader />}>
-      <InvoicesPage />
+      <RbacGuard module="invoices">
+        <InvoicesPage />
+      </RbacGuard>
     </Suspense>
   ),
 });
@@ -100,7 +103,9 @@ const customersRoute = createRoute({
   path: "/app/customers",
   component: () => (
     <Suspense fallback={<PageLoader />}>
-      <CustomersPage />
+      <RbacGuard module="customers">
+        <CustomersPage />
+      </RbacGuard>
     </Suspense>
   ),
 });
@@ -109,7 +114,9 @@ const vendorsRoute = createRoute({
   path: "/app/vendors",
   component: () => (
     <Suspense fallback={<PageLoader />}>
-      <VendorsPage />
+      <RbacGuard module="vendors">
+        <VendorsPage />
+      </RbacGuard>
     </Suspense>
   ),
 });
@@ -118,7 +125,9 @@ const productsRoute = createRoute({
   path: "/app/products",
   component: () => (
     <Suspense fallback={<PageLoader />}>
-      <ProductsPage />
+      <RbacGuard module="products">
+        <ProductsPage />
+      </RbacGuard>
     </Suspense>
   ),
 });
@@ -127,7 +136,9 @@ const expensesRoute = createRoute({
   path: "/app/expenses",
   component: () => (
     <Suspense fallback={<PageLoader />}>
-      <ExpensesPage />
+      <RbacGuard module="expenses">
+        <ExpensesPage />
+      </RbacGuard>
     </Suspense>
   ),
 });
@@ -136,7 +147,9 @@ const gstReportsRoute = createRoute({
   path: "/app/gst-reports",
   component: () => (
     <Suspense fallback={<PageLoader />}>
-      <GstReportsPage />
+      <RbacGuard module="gst-reports">
+        <GstReportsPage />
+      </RbacGuard>
     </Suspense>
   ),
 });
@@ -145,7 +158,9 @@ const ledgerRoute = createRoute({
   path: "/app/ledger",
   component: () => (
     <Suspense fallback={<PageLoader />}>
-      <LedgerPage />
+      <RbacGuard module="ledger">
+        <LedgerPage />
+      </RbacGuard>
     </Suspense>
   ),
 });
@@ -154,7 +169,9 @@ const aiAssistantRoute = createRoute({
   path: "/app/ai-assistant",
   component: () => (
     <Suspense fallback={<PageLoader />}>
-      <AiAssistantPage />
+      <RbacGuard module="ai-assistant">
+        <AiAssistantPage />
+      </RbacGuard>
     </Suspense>
   ),
 });
@@ -163,7 +180,9 @@ const subscriptionRoute = createRoute({
   path: "/app/subscription",
   component: () => (
     <Suspense fallback={<PageLoader />}>
-      <SubscriptionPage />
+      <RbacGuard module="subscriptions">
+        <SubscriptionPage />
+      </RbacGuard>
     </Suspense>
   ),
 });
@@ -172,7 +191,9 @@ const settingsRoute = createRoute({
   path: "/app/settings",
   component: () => (
     <Suspense fallback={<PageLoader />}>
-      <SettingsPage />
+      <RbacGuard module="settings">
+        <SettingsPage />
+      </RbacGuard>
     </Suspense>
   ),
 });
@@ -181,7 +202,9 @@ const bankAccountsRoute = createRoute({
   path: "/app/bank-accounts",
   component: () => (
     <Suspense fallback={<PageLoader />}>
-      <BankAccountsPage />
+      <RbacGuard module="bank-accounts">
+        <BankAccountsPage />
+      </RbacGuard>
     </Suspense>
   ),
 });
@@ -190,7 +213,9 @@ const pettyCashRoute = createRoute({
   path: "/app/petty-cash",
   component: () => (
     <Suspense fallback={<PageLoader />}>
-      <PettyCashPage />
+      <RbacGuard module="petty-cash">
+        <PettyCashPage />
+      </RbacGuard>
     </Suspense>
   ),
 });
@@ -199,7 +224,9 @@ const usersRoute = createRoute({
   path: "/app/users",
   component: () => (
     <Suspense fallback={<PageLoader />}>
-      <UsersPage />
+      <RbacGuard module="users">
+        <UsersPage />
+      </RbacGuard>
     </Suspense>
   ),
 });
@@ -208,7 +235,9 @@ const plReportRoute = createRoute({
   path: "/app/reports/pl",
   component: () => (
     <Suspense fallback={<PageLoader />}>
-      <PLReportPage />
+      <RbacGuard module="pl-report">
+        <PLReportPage />
+      </RbacGuard>
     </Suspense>
   ),
 });
@@ -217,7 +246,9 @@ const balanceSheetRoute = createRoute({
   path: "/app/reports/balance-sheet",
   component: () => (
     <Suspense fallback={<PageLoader />}>
-      <BalanceSheetPage />
+      <RbacGuard module="balance-sheet">
+        <BalanceSheetPage />
+      </RbacGuard>
     </Suspense>
   ),
 });
@@ -227,7 +258,9 @@ const companyCategoriesRoute = createRoute({
   path: "/app/company-categories",
   component: () => (
     <Suspense fallback={<PageLoader />}>
-      <CompanyCategoriesPage />
+      <RbacGuard module="company-categories">
+        <CompanyCategoriesPage />
+      </RbacGuard>
     </Suspense>
   ),
 });
@@ -237,7 +270,9 @@ const tallyImportRoute = createRoute({
   path: "/app/tally-import",
   component: () => (
     <Suspense fallback={<PageLoader />}>
-      <TallyImportPage />
+      <RbacGuard module="tally-import">
+        <TallyImportPage />
+      </RbacGuard>
     </Suspense>
   ),
 });
@@ -247,7 +282,9 @@ const gstFilingRoute = createRoute({
   path: "/app/gst-filing",
   component: () => (
     <Suspense fallback={<PageLoader />}>
-      <GstFilingPage />
+      <RbacGuard module="gst-filing">
+        <GstFilingPage />
+      </RbacGuard>
     </Suspense>
   ),
 });
@@ -257,7 +294,9 @@ const b2bReconciliationRoute = createRoute({
   path: "/app/b2b-reconciliation",
   component: () => (
     <Suspense fallback={<PageLoader />}>
-      <B2bReconciliationPage />
+      <RbacGuard module="b2b-reconciliation">
+        <B2bReconciliationPage />
+      </RbacGuard>
     </Suspense>
   ),
 });
@@ -267,7 +306,9 @@ const userManualRoute = createRoute({
   path: "/app/user-manual",
   component: () => (
     <Suspense fallback={<PageLoader />}>
-      <UserManualPage />
+      <RbacGuard module="user-manual">
+        <UserManualPage />
+      </RbacGuard>
     </Suspense>
   ),
 });
@@ -277,7 +318,9 @@ const superuserSettingsRoute = createRoute({
   path: "/app/superuser-settings",
   component: () => (
     <Suspense fallback={<PageLoader />}>
-      <SuperuserSettingsPage />
+      <RbacGuard module="settings">
+        <SuperuserSettingsPage />
+      </RbacGuard>
     </Suspense>
   ),
 });
@@ -287,7 +330,9 @@ const onboardingPortalRoute = createRoute({
   path: "/app/onboard",
   component: () => (
     <Suspense fallback={<PageLoader />}>
-      <OnboardingPortalPage />
+      <RbacGuard module="settings">
+        <OnboardingPortalPage />
+      </RbacGuard>
     </Suspense>
   ),
 });

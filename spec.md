@@ -1,89 +1,52 @@
-# LekhyaAI — Phase 2C
+# LekhyaAI
 
 ## Current State
 
-LekhyaAI is a full-stack GST accounting SaaS built on ICP/Motoko backend + React frontend. Version 38 is live with:
-- Full accounting modules (Dashboard, Invoices, Ledger, GST Reports, P&L, Balance Sheet, etc.)
-- Marketing website at `/` and accounting app at `/app`
-- SuperUser/Developer mode (PIN: LEKHYA2024) with settings at `/app/superuser-settings`
-- Floating calculator and AI widget
-- Llama Vision OCR invoice scanner
-- RBAC for business users (Admin/Accountant/CA roles)
+LekhyaAI is a full-stack Indian GST accounting SaaS with:
+- Stripe component already in caffeine.lock.json
+- Backend already exposes: `createCheckoutSession`, `isStripeConfigured`, `setStripeConfiguration`, `getStripeSessionStatus`
+- `SubscriptionPage` already calls `createCheckoutSession` and redirects to Stripe checkout
+- `PaymentCheckoutPage` is a fake card form UI (simulated, no real payment)
+- `SuperuserSettingsPage` has a "Payment Gateway" section that saves API keys to localStorage only — it does NOT call `setStripeConfiguration` on the backend
+- No success/cancel URL handling after Stripe redirects back
 
 ## Requested Changes (Diff)
 
 ### Add
-
-1. **Onboard Portal** (`/onboard`) — SuperUser-only client management system with:
-   - Client list with status (Active / Trial / Suspended)
-   - Add/Edit client form with all onboarding fields: Business name, Contact person, Phone, Email, GSTIN, State, Industry, Address, Selected plan, Notes
-   - AI-assisted field suggestion (pre-fill industry defaults using Llama)
-   - Assign webapp access to client (generate access token / client ID)
-   - Client detail view with their users and subscription info
-
-2. **Quotation Form** (`/onboard/quotation`) — For generating deployment quotes:
-   - Pricing breakup: per-user fee, per-invoice fee, Tally import volume, development charges, server charges
-   - GST (18%) applied on top
-   - Loyalty discount field (configurable %)
-   - Generated quote preview (printable)
-   - All prices are editable by SuperUser in SuperUser Settings
-
-3. **Subscription Pricing Editor** (in SuperUser Settings page) — New section:
-   - Editable pricing for all tiers (Starter, Professional, Enterprise) — monthly and annual
-   - Per-user rate, per-invoice rate, Tally import tier pricing
-   - Development charges (one-time), server charges (monthly)
-   - GST rate override (default 18%)
-   - Save prices to localStorage; these populate both the marketing website pricing and quotation form
-
-4. **Dummy Payment Gateway** (`/app/payment-checkout`) — Simulated Razorpay/Stripe checkout UI:
-   - Plan selection card
-   - Payment form: card number, expiry, CVV, name on card
-   - "Pay Now" button that simulates success with confetti animation
-   - API key placeholder in SuperUser Settings (already present, needs wiring to show "LIVE" vs "TEST" badge)
-
-5. **Auto-Backup Settings** (SuperUser Settings — already has UI, needs backend wiring):
-   - "Run Backup Now" button that exports all localStorage data as a JSON file download
-   - Scheduled reminder: shows a toast/notification when backup is due (based on frequency setting)
-   - Last backup timestamp display
-
-6. **WhatsApp & Email Send Actions** (in Invoices, P&L Report, GST Reports pages):
-   - "Send via WhatsApp" button: opens `wa.me/{phone}?text={AI-drafted message}` link (no API needed)
-   - "Send via Email" button: opens `mailto:{email}?subject=...&body=...` link (no SMTP needed yet)
-   - AI drafts both the WhatsApp message and email body using Llama with the actual invoice/report data
-   - Phone/email pulled from customer record on invoice; user can edit before sending
-
-7. **Full RBAC Matrix** (in `/app/users` page) — Editable module+feature permission grid:
-   - Rows: all 20+ modules (Dashboard, Invoices, Customers, Vendors, Products, Expenses, GST Reports, Ledger, P&L, Balance Sheet, Bank Accounts, Petty Cash, Tally Import, GST Filing, B2B Reconciliation, AI Assistant, Journal Entry, Subscriptions, Settings, User Manual, WhatsApp Send, Email Send, PDF Export, OCR Scanner)
-   - Columns: Admin (locked full), Accountant, CA
-   - Checkboxes to toggle each permission per role
-   - "Reset Defaults" button
-   - Permissions checked in AppLayout sidebar — hidden menu items for restricted roles
+- A "Configure Stripe on Backend" button in SuperUser Settings Payment Gateway section that calls `actor.setStripeConfiguration({ secretKey, allowedCountries })` to persist the key in the ICP backend
+- A status indicator in SuperUser Settings showing whether Stripe is configured on the backend (`actor.isStripeConfigured()`)
+- Success and cancel URL callback handling in `SubscriptionPage` — read `?success=1` or `?cancelled=1` from the URL and show appropriate toast/UI
 
 ### Modify
-
-- **SuperUser Settings** — Add Subscription Pricing Editor section and "Run Backup Now" button
-- **Marketing Page pricing** — Read prices from editable pricing config (SuperUser can update)
-- **AppLayout sidebar** — Respect RBAC permissions: hide menu items user doesn't have access to
-- **Invoices page** — Add "Send via WhatsApp" and "Send via Email" buttons on invoice detail/row actions
-- **P&L Report, GST Reports pages** — Add "Send via WhatsApp" and "Send via Email" action buttons
-- **App.tsx** — Add `/onboard`, `/onboard/quotation`, `/app/payment-checkout` routes
+- `PaymentCheckoutPage`: Replace the fake card form with a real Stripe Checkout redirect flow using `createCheckoutSession`. Show plan summary, a "Proceed to Secure Checkout" button that calls the backend, and redirects to the Stripe-hosted checkout page. On return (success/cancel URL), show appropriate status.
+- `SuperuserSettingsPage` Payment Gateway section: Add a "Save to Backend" button that calls `setStripeConfiguration` with the entered secret key and a default `allowedCountries: ["IN"]` (India). Show a live/not-configured badge based on `isStripeConfigured()`.
+- `SubscriptionPage`: Handle `?success=1` (show success message, subscription activated) and `?cancelled=1` (show cancelled message) query params after Stripe redirect returns
 
 ### Remove
-
-- Nothing removed
+- The fake card input fields (card number, expiry, CVV, name on card) from `PaymentCheckoutPage`
+- The simulated 2-second delay payment processing from `PaymentCheckoutPage`
 
 ## Implementation Plan
 
-1. Create `utils/rbac.ts` — RBAC permission store (localStorage), default permissions, check functions
-2. Create `utils/pricingConfig.ts` — Editable pricing store for SuperUser
-3. Create `utils/sendActions.ts` — WhatsApp/Email deep-link generators using Llama for AI drafting
-4. Create `utils/backupUtils.ts` — Export all localStorage data as JSON download
-5. Create `pages/OnboardingPortalPage.tsx` — Client management portal (SuperUser only)
-6. Create `pages/QuotationPage.tsx` — Quotation form + preview
-7. Create `pages/PaymentCheckoutPage.tsx` — Dummy payment checkout simulation
-8. Update `pages/SuperuserSettingsPage.tsx` — Add Subscription Pricing Editor + Backup Now button
-9. Update `pages/UsersPage.tsx` — Replace simple RBAC toggle with full module+feature matrix
-10. Update `components/AppLayout.tsx` — Apply RBAC to sidebar menu visibility
-11. Update `pages/InvoicesPage.tsx` — Add WhatsApp/Email send buttons
-12. Update `pages/PLReportPage.tsx` and `GstReportsPage.tsx` — Add WhatsApp/Email send buttons
-13. Update `App.tsx` — Register new routes
+1. **SuperuserSettingsPage**: 
+   - Import `useActor` to get actor
+   - Add `isStripeConfigured` query using `actor.isStripeConfigured()` — show a badge (Configured / Not Configured)
+   - Add "Save to Backend" button in Payment Gateway section that calls `actor.setStripeConfiguration({ secretKey: config.paymentGatewaySecret, allowedCountries: ["IN"] })`
+   - Show success/error toast after save
+
+2. **PaymentCheckoutPage**:
+   - Remove fake card form UI
+   - Add plan summary card with amount, plan name, billing period
+   - Add "Proceed to Secure Checkout" button that:
+     - Calls `actor.isStripeConfigured()` — if not configured, show error with support message
+     - Calls `actor.createCheckoutSession(items, successUrl, cancelUrl)` 
+     - Redirects to the returned Stripe URL
+   - Handle `?success=1` URL param: show success state with receipt and "Go to Dashboard" button
+   - Handle `?cancelled=1` URL param: show cancelled state with "Try Again" button
+   - Keep the existing plan summary header (plan name, amount, billing mode badge)
+
+3. **SubscriptionPage**:
+   - Read URL params on mount
+   - If `?success=1`: show success toast "Subscription activated! You now have full access."
+   - If `?cancelled=1`: show info toast "Checkout was cancelled."
+   - Clean up URL params after handling (replace URL without query string)

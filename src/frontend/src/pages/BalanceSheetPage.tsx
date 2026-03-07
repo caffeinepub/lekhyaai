@@ -296,18 +296,21 @@ export default function BalanceSheetPage() {
       {/* Date Selector */}
       <div className="bg-card border border-border rounded-xl p-5 mb-6">
         <h3 className="font-semibold text-foreground mb-4">As of Date</h3>
-        <div className="flex items-end gap-4">
-          <div className="space-y-1.5">
-            <Label>Date</Label>
+        <div className="flex items-end gap-4 flex-wrap">
+          <div className="flex items-center gap-2">
+            <Label className="text-sm font-medium text-muted-foreground whitespace-nowrap">
+              As of
+            </Label>
             <Input
+              data-ocid="balance_sheet.as_of.input"
               type="date"
-              data-ocid="balance_sheet.as_of_date.input"
               value={asOf}
               onChange={(e) => {
                 setAsOf(e.target.value);
                 setGenerated(false);
               }}
-              className="w-48"
+              className="w-40 text-sm"
+              max={new Date().toISOString().split("T")[0]}
             />
           </div>
           <Button

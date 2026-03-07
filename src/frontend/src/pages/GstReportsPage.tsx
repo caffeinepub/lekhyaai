@@ -10,6 +10,7 @@ import {
 } from "@/components/ui/select";
 import { cn } from "@/lib/utils";
 import {
+  AlertCircle,
   BarChart3,
   ChevronDown,
   ChevronRight,
@@ -131,6 +132,7 @@ export default function GstReportsPage() {
   const [customEnd, setCustomEnd] = useState("");
   const [loading, setLoading] = useState(false);
   const [report, setReport] = useState<ReportData | null>(null);
+  const [actorError, setActorError] = useState(false);
   const [showDetails, setShowDetails] = useState(false);
   const [sendingWA, setSendingWA] = useState(false);
   const [sendingEmail, setSendingEmail] = useState(false);
@@ -145,7 +147,12 @@ export default function GstReportsPage() {
         };
 
   async function generateReport() {
-    if (!actor || activeBusinessId === null) return;
+    if (!actor || activeBusinessId === null) {
+      setActorError(true);
+      toast.error("Connection not ready. Please wait a moment and try again.");
+      return;
+    }
+    setActorError(false);
     if (!dates.start || !dates.end) {
       toast.error("Please select a valid date range");
       return;
@@ -337,24 +344,44 @@ export default function GstReportsPage() {
           )}
         </div>
 
-        <Button
-          data-ocid="gst_reports.generate_button"
-          onClick={generateReport}
-          disabled={loading}
-          className="mt-5 bg-primary text-primary-foreground hover:bg-primary/90 gap-2"
-        >
-          {loading ? (
-            <>
-              <Loader2 className="w-4 h-4 animate-spin" />
-              Generating…
-            </>
-          ) : (
-            <>
-              <RefreshCw className="w-4 h-4" />
-              Generate Report
-            </>
-          )}
-        </Button>
+        {actorError ? (
+          <div
+            data-ocid="gst.actor.error_state"
+            className="mt-5 flex flex-col items-center gap-3 p-6 bg-destructive/5 border border-destructive/20 rounded-xl"
+          >
+            <AlertCircle className="w-8 h-8 text-destructive" />
+            <p className="text-sm text-destructive font-medium">
+              Connection error — backend not ready
+            </p>
+            <Button
+              size="sm"
+              variant="outline"
+              onClick={generateReport}
+              data-ocid="gst.retry.button"
+            >
+              <RefreshCw className="w-4 h-4 mr-2" /> Retry
+            </Button>
+          </div>
+        ) : (
+          <Button
+            data-ocid="gst_reports.generate_button"
+            onClick={generateReport}
+            disabled={loading}
+            className="mt-5 bg-primary text-primary-foreground hover:bg-primary/90 gap-2"
+          >
+            {loading ? (
+              <>
+                <Loader2 className="w-4 h-4 animate-spin" />
+                Generating…
+              </>
+            ) : (
+              <>
+                <RefreshCw className="w-4 h-4" />
+                Generate Report
+              </>
+            )}
+          </Button>
+        )}
       </div>
 
       {/* Report Result */}

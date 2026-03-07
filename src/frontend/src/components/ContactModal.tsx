@@ -19,6 +19,46 @@ import { Loader2 } from "lucide-react";
 import { useEffect, useState } from "react";
 import { INDIAN_STATES } from "../utils/indianStates";
 
+const GSTIN_STATE_MAP: Record<string, string> = {
+  "01": "Jammu and Kashmir",
+  "02": "Himachal Pradesh",
+  "03": "Punjab",
+  "04": "Chandigarh",
+  "05": "Uttarakhand",
+  "06": "Haryana",
+  "07": "Delhi",
+  "08": "Rajasthan",
+  "09": "Uttar Pradesh",
+  "10": "Bihar",
+  "11": "Sikkim",
+  "12": "Arunachal Pradesh",
+  "13": "Nagaland",
+  "14": "Manipur",
+  "15": "Mizoram",
+  "16": "Tripura",
+  "17": "Meghalaya",
+  "18": "Assam",
+  "19": "West Bengal",
+  "20": "Jharkhand",
+  "21": "Odisha",
+  "22": "Chhattisgarh",
+  "23": "Madhya Pradesh",
+  "24": "Gujarat",
+  "25": "Daman and Diu",
+  "26": "Dadra and Nagar Haveli",
+  "27": "Maharashtra",
+  "28": "Andhra Pradesh",
+  "29": "Karnataka",
+  "30": "Goa",
+  "31": "Lakshadweep",
+  "32": "Kerala",
+  "33": "Tamil Nadu",
+  "34": "Puducherry",
+  "35": "Andaman and Nicobar Islands",
+  "36": "Telangana",
+  "37": "Andhra Pradesh",
+};
+
 export interface ContactFormData {
   name: string;
   gstin: string;
@@ -138,7 +178,18 @@ export default function ContactModal({
               maxLength={15}
               value={form.gstin}
               onChange={(e) => {
-                setForm((p) => ({ ...p, gstin: e.target.value.toUpperCase() }));
+                const val = e.target.value.toUpperCase();
+                setForm((p) => {
+                  const next = { ...p, gstin: val };
+                  if (showState && val.length === 15) {
+                    const prefix = val.slice(0, 2);
+                    const derivedState = GSTIN_STATE_MAP[prefix];
+                    if (derivedState && !p.state) {
+                      next.state = derivedState;
+                    }
+                  }
+                  return next;
+                });
                 setErrors((p) => ({ ...p, gstin: "" }));
               }}
             />

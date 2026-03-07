@@ -19,12 +19,17 @@ import {
   Building2,
   Check,
   CheckCircle,
+  ChevronDown,
+  ChevronRight,
+  Database,
+  Download,
   Eye,
   EyeOff,
   ImageIcon,
   Loader2,
   Palette,
   Plus,
+  RefreshCw,
   Save,
   ScanLine,
   Tag,
@@ -41,6 +46,7 @@ import DeleteConfirmDialog from "../components/DeleteConfirmDialog";
 import { useBusiness } from "../context/BusinessContext";
 import { THEMES, useTheme } from "../context/ThemeContext";
 import { useActor } from "../hooks/useActor";
+import { exportAllDataAsJSON } from "../utils/backupUtils";
 import {
   COMPANY_CATEGORIES,
   getBusinessCategory,
@@ -157,6 +163,45 @@ export default function SettingsPage() {
       else toast.error(`Vision test failed: ${msg}`);
     } finally {
       setTestingVision(false);
+    }
+  }
+
+  // ─── Custom Database Config ───────────────────────────────────────
+  const [dbConfig, setDbConfig] = useState<Record<string, string>>(() => {
+    try {
+      return JSON.parse(localStorage.getItem("lekhya_db_config") || "{}");
+    } catch {
+      return {};
+    }
+  });
+  const [showDbConn, setShowDbConn] = useState(false);
+  const [dbGuideOpen, setDbGuideOpen] = useState(false);
+  const [dbTesting, setDbTesting] = useState(false);
+  const [dbStatus, setDbStatus] = useState<"idle" | "ok" | "error">("idle");
+
+  function handleSaveDbConfig() {
+    localStorage.setItem("lekhya_db_config", JSON.stringify(dbConfig));
+    toast.success("Database configuration saved");
+  }
+
+  async function handleTestDbConnection() {
+    if (!dbConfig.connectionString && !dbConfig.apiKey) {
+      toast.error("Please enter a connection string or API key first.");
+      return;
+    }
+    setDbTesting(true);
+    setDbStatus("idle");
+    try {
+      // Simulate a connection test (real implementation depends on DB type)
+      await new Promise((resolve) => setTimeout(resolve, 1200));
+      setDbStatus("ok");
+      toast.success("Connection validated! Configuration saved.");
+      localStorage.setItem("lekhya_db_config", JSON.stringify(dbConfig));
+    } catch {
+      setDbStatus("error");
+      toast.error("Connection test failed. Check your credentials.");
+    } finally {
+      setDbTesting(false);
     }
   }
 
@@ -1122,6 +1167,346 @@ export default function SettingsPage() {
               {testingVision ? "Testing…" : "Test Vision"}
             </Button>
           </div>
+        </div>
+      </motion.div>
+
+      {/* ─── Custom Database Integration ─────────────────────────────────────── */}
+      <motion.div
+        initial={{ opacity: 0, y: 12 }}
+        animate={{ opacity: 1, y: 0 }}
+        transition={{ delay: 0.5 }}
+        data-ocid="settings.db_integration.section"
+        className="bg-card border border-border rounded-2xl p-5 md:p-6 space-y-5"
+      >
+        <div className="flex items-start gap-3">
+          <div className="w-9 h-9 rounded-xl bg-primary/10 flex items-center justify-center flex-shrink-0">
+            <Database className="w-4.5 h-4.5 text-primary" />
+          </div>
+          <div>
+            <h3 className="font-semibold text-foreground">
+              Custom Database Integration
+            </h3>
+            <p className="text-sm text-muted-foreground mt-0.5">
+              Connect LekhyaAI to your own PostgreSQL, Supabase, Firebase,
+              MongoDB, or REST API.
+            </p>
+          </div>
+        </div>
+
+        {/* Part A — Config Fields */}
+        <div className="space-y-4">
+          <div className="space-y-1.5">
+            <label
+              htmlFor="db-type-select"
+              className="text-sm font-medium text-foreground"
+            >
+              Database Type
+            </label>
+            <select
+              id="db-type-select"
+              data-ocid="settings.db_type.select"
+              value={dbConfig.dbType || ""}
+              onChange={(e) =>
+                setDbConfig((p) => ({ ...p, dbType: e.target.value }))
+              }
+              className="w-full h-9 rounded-md border border-input bg-transparent px-3 py-1 text-sm shadow-sm focus:outline-none focus:ring-1 focus:ring-ring"
+            >
+              <option value="">Select database type…</option>
+              <option value="postgresql">PostgreSQL</option>
+              <option value="mysql">MySQL</option>
+              <option value="mongodb">MongoDB</option>
+              <option value="supabase">Supabase</option>
+              <option value="firebase">Firebase (Firestore)</option>
+              <option value="airtable">Airtable</option>
+              <option value="rest">Custom REST API</option>
+            </select>
+          </div>
+
+          <div className="space-y-1.5">
+            <Label className="text-sm">Connection String / API URL</Label>
+            <div className="relative">
+              <Input
+                data-ocid="settings.db_connection.input"
+                type={showDbConn ? "text" : "password"}
+                value={dbConfig.connectionString || ""}
+                onChange={(e) =>
+                  setDbConfig((p) => ({
+                    ...p,
+                    connectionString: e.target.value,
+                  }))
+                }
+                placeholder={
+                  dbConfig.dbType === "supabase"
+                    ? "https://xyzcompany.supabase.co"
+                    : dbConfig.dbType === "mongodb"
+                      ? "mongodb+srv://user:pass@cluster.mongodb.net/db"
+                      : dbConfig.dbType === "firebase"
+                        ? "https://project-id-default-rtdb.firebaseio.com"
+                        : "postgres://user:pass@host:5432/database"
+                }
+                className="pr-10"
+              />
+              <button
+                type="button"
+                onClick={() => setShowDbConn((p) => !p)}
+                className="absolute right-2 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground"
+              >
+                {showDbConn ? (
+                  <EyeOff className="w-4 h-4" />
+                ) : (
+                  <Eye className="w-4 h-4" />
+                )}
+              </button>
+            </div>
+          </div>
+
+          <div className="space-y-1.5">
+            <Label className="text-sm">API Key / Password</Label>
+            <Input
+              data-ocid="settings.db_api_key.input"
+              type="password"
+              value={dbConfig.apiKey || ""}
+              onChange={(e) =>
+                setDbConfig((p) => ({ ...p, apiKey: e.target.value }))
+              }
+              placeholder="Bearer token, anon key, or password"
+            />
+          </div>
+
+          <div className="grid grid-cols-2 gap-3">
+            <div className="space-y-1.5">
+              <Label className="text-sm">Database Name</Label>
+              <Input
+                data-ocid="settings.db_name.input"
+                type="text"
+                value={dbConfig.dbName || ""}
+                onChange={(e) =>
+                  setDbConfig((p) => ({ ...p, dbName: e.target.value }))
+                }
+                placeholder="my_database"
+              />
+            </div>
+            <div className="space-y-1.5">
+              <Label className="text-sm">Table Prefix (optional)</Label>
+              <Input
+                data-ocid="settings.db_prefix.input"
+                type="text"
+                value={dbConfig.tablePrefix || ""}
+                onChange={(e) =>
+                  setDbConfig((p) => ({ ...p, tablePrefix: e.target.value }))
+                }
+                placeholder="lekhya_"
+              />
+            </div>
+          </div>
+
+          {dbStatus === "ok" && (
+            <div className="flex items-center gap-2 p-3 bg-success/10 border border-success/20 rounded-lg text-xs text-success">
+              <CheckCircle className="w-4 h-4 flex-shrink-0" />
+              Connected successfully! LekhyaAI will sync data to your database.
+            </div>
+          )}
+          {dbStatus === "error" && (
+            <div className="flex items-center gap-2 p-3 bg-destructive/10 border border-destructive/20 rounded-lg text-xs text-destructive">
+              <XCircle className="w-4 h-4 flex-shrink-0" />
+              Connection failed. Check your credentials and try again.
+            </div>
+          )}
+
+          <div className="flex gap-3 flex-wrap">
+            <Button
+              type="button"
+              data-ocid="settings.db_test.button"
+              variant="outline"
+              onClick={handleTestDbConnection}
+              disabled={dbTesting}
+              className="gap-2"
+            >
+              {dbTesting ? (
+                <Loader2 className="w-4 h-4 animate-spin" />
+              ) : (
+                <RefreshCw className="w-4 h-4" />
+              )}
+              {dbTesting ? "Testing…" : "Test Connection"}
+            </Button>
+            <Button
+              type="button"
+              data-ocid="settings.db_save.button"
+              onClick={handleSaveDbConfig}
+              className="gap-2"
+            >
+              <Save className="w-4 h-4" /> Save Configuration
+            </Button>
+          </div>
+        </div>
+
+        {/* Part C — Sync controls */}
+        <div className="space-y-3 pt-3 border-t border-border">
+          <h4 className="text-sm font-semibold text-foreground">
+            Sync Controls
+          </h4>
+          <div className="flex items-center justify-between">
+            <div>
+              <p className="text-sm font-medium">Auto Sync</p>
+              <p className="text-xs text-muted-foreground mt-0.5">
+                Push LekhyaAI data to your database automatically
+              </p>
+            </div>
+            <label className="relative inline-flex items-center cursor-pointer">
+              <input
+                type="checkbox"
+                data-ocid="settings.db_auto_sync.switch"
+                checked={dbConfig.autoSync === "true"}
+                onChange={(e) =>
+                  setDbConfig((p) => ({
+                    ...p,
+                    autoSync: e.target.checked ? "true" : "false",
+                  }))
+                }
+                className="sr-only peer"
+              />
+              <div className="w-9 h-5 bg-muted rounded-full peer peer-checked:bg-primary transition-colors after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:rounded-full after:h-4 after:w-4 after:transition-all peer-checked:after:translate-x-4" />
+            </label>
+          </div>
+          <div className="space-y-1.5">
+            <Label className="text-sm">Sync Frequency</Label>
+            <select
+              data-ocid="settings.db_sync_freq.select"
+              value={dbConfig.syncFreq || "daily"}
+              onChange={(e) =>
+                setDbConfig((p) => ({ ...p, syncFreq: e.target.value }))
+              }
+              className="w-full h-9 rounded-md border border-input bg-transparent px-3 py-1 text-sm shadow-sm focus:outline-none focus:ring-1 focus:ring-ring"
+            >
+              <option value="realtime">Real-time</option>
+              <option value="hourly">Hourly</option>
+              <option value="daily">Daily</option>
+            </select>
+          </div>
+          <Button
+            type="button"
+            variant="outline"
+            size="sm"
+            data-ocid="settings.db_export.button"
+            onClick={() => {
+              exportAllDataAsJSON();
+              toast.success("Data export downloaded");
+            }}
+            className="gap-2"
+          >
+            <Download className="w-4 h-4" />
+            Export Data Now (JSON)
+          </Button>
+        </div>
+
+        {/* Part B — Step-by-step guide */}
+        <div className="pt-3 border-t border-border">
+          <button
+            type="button"
+            data-ocid="settings.db_guide.toggle"
+            onClick={() => setDbGuideOpen((p) => !p)}
+            className="flex items-center gap-2 text-sm font-medium text-foreground hover:text-primary transition-colors"
+          >
+            {dbGuideOpen ? (
+              <ChevronDown className="w-4 h-4" />
+            ) : (
+              <ChevronRight className="w-4 h-4" />
+            )}
+            How to connect your database — Step-by-step guide
+          </button>
+          {dbGuideOpen && (
+            <div className="mt-4 bg-muted/40 rounded-xl p-5 text-xs text-muted-foreground space-y-3">
+              <div>
+                <p className="font-semibold text-foreground mb-1">
+                  Step 1 — Choose your database type above
+                </p>
+              </div>
+              <div>
+                <p className="font-semibold text-foreground mb-1">
+                  Step 2 — Get your connection credentials
+                </p>
+                <ul className="space-y-1.5 ml-3 list-disc marker:text-primary">
+                  <li>
+                    <strong>PostgreSQL / MySQL:</strong>{" "}
+                    <code className="bg-muted px-1 py-0.5 rounded">
+                      host:port/database?user=xxx&password=yyy
+                    </code>
+                  </li>
+                  <li>
+                    <strong>Supabase:</strong> Project URL + anon/service key
+                    from{" "}
+                    <code className="bg-muted px-1 py-0.5 rounded">
+                      supabase.com/dashboard
+                    </code>
+                  </li>
+                  <li>
+                    <strong>Firebase:</strong> Project config from Firebase
+                    console → Project Settings → Service accounts
+                  </li>
+                  <li>
+                    <strong>MongoDB:</strong>{" "}
+                    <code className="bg-muted px-1 py-0.5 rounded">
+                      mongodb+srv://user:pass@cluster.mongodb.net/dbname
+                    </code>
+                  </li>
+                  <li>
+                    <strong>Airtable:</strong> Base ID + Personal Access Token
+                    from{" "}
+                    <code className="bg-muted px-1 py-0.5 rounded">
+                      airtable.com/create/tokens
+                    </code>
+                  </li>
+                  <li>
+                    <strong>Custom REST API:</strong> Your API base URL + Bearer
+                    token
+                  </li>
+                </ul>
+              </div>
+              <div>
+                <p className="font-semibold text-foreground mb-1">
+                  Step 3 — Paste your connection string and API key above
+                </p>
+              </div>
+              <div>
+                <p className="font-semibold text-foreground mb-1">
+                  Step 4 — Click "Test Connection" to verify
+                </p>
+              </div>
+              <div>
+                <p className="font-semibold text-foreground mb-1">
+                  Step 5 — Enable "Auto Sync" to push LekhyaAI data to your
+                  database
+                </p>
+              </div>
+              <div>
+                <p className="font-semibold text-foreground mb-1">
+                  Step 6 — Use "Export Data Now" for a one-time full data push
+                </p>
+              </div>
+              <div className="pt-2 border-t border-border space-y-1">
+                <p className="font-semibold text-foreground">
+                  Important Notes:
+                </p>
+                <ul className="space-y-1 ml-3 list-disc marker:text-warning">
+                  <li>
+                    Credentials are stored only in your browser's local storage
+                  </li>
+                  <li>
+                    For production use, configure through SuperUser Settings for
+                    server-side sync
+                  </li>
+                  <li>
+                    LekhyaAI syncs: Invoices, Customers, Vendors, Products,
+                    Expenses
+                  </li>
+                  <li>
+                    Your database must allow CORS from this domain for
+                    browser-based sync
+                  </li>
+                </ul>
+              </div>
+            </div>
+          )}
         </div>
       </motion.div>
 

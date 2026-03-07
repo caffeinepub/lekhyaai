@@ -11,7 +11,7 @@ import {
   Zap,
 } from "lucide-react";
 import { motion } from "motion/react";
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { toast } from "sonner";
 import { useActor } from "../hooks/useActor";
 import { useSubscriptionStatus } from "../hooks/useQueries";
@@ -43,6 +43,22 @@ export default function SubscriptionPage() {
   const [upgradeLoading, setUpgradeLoading] = useState(false);
 
   const isPro = sub?.tier === SubscriptionTier.paid;
+
+  // Handle Stripe return URL params on mount
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search);
+    if (params.get("success") === "1") {
+      toast.success("Subscription activated! You now have full access.");
+      const newUrl = new URL(window.location.href);
+      newUrl.searchParams.delete("success");
+      window.history.replaceState({}, "", newUrl.toString());
+    } else if (params.get("cancelled") === "1") {
+      toast.info("Checkout was cancelled.");
+      const newUrl = new URL(window.location.href);
+      newUrl.searchParams.delete("cancelled");
+      window.history.replaceState({}, "", newUrl.toString());
+    }
+  }, []);
 
   async function handleUpgrade() {
     if (!actor) return;

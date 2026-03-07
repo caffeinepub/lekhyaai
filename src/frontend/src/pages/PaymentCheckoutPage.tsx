@@ -1,32 +1,27 @@
 import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
-import { Label } from "@/components/ui/label";
-import { CheckCircle2, CreditCard, Loader2, Lock, Shield } from "lucide-react";
+import {
+  CheckCircle2,
+  ExternalLink,
+  Loader2,
+  Lock,
+  Shield,
+  XCircle,
+} from "lucide-react";
 import { AnimatePresence, motion } from "motion/react";
 import { useState } from "react";
 import { toast } from "sonner";
+import { useActor } from "../hooks/useActor";
 import { formatINRNumber } from "../utils/formatINR";
 import { getPricingConfig } from "../utils/pricingConfig";
 import { getSuperUserConfig } from "../utils/superuser";
 
-function formatCardNumber(value: string): string {
-  const digits = value.replace(/\D/g, "").slice(0, 16);
-  return digits.replace(/(.{4})/g, "$1 ").trim();
-}
-
-function formatExpiry(value: string): string {
-  const digits = value.replace(/\D/g, "").slice(0, 4);
-  if (digits.length >= 3) {
-    return `${digits.slice(0, 2)}/${digits.slice(2)}`;
-  }
-  return digits;
-}
-
-type PaymentState = "form" | "processing" | "success";
+type PaymentState = "form" | "processing" | "success" | "cancelled";
 
 export default function PaymentCheckoutPage() {
   const pricing = getPricingConfig();
   const suConfig = getSuperUserConfig();
+  const { actor, isFetching } = useActor();
+
   const isLiveMode = !!(
     suConfig.paymentGatewayKey && suConfig.paymentGatewayKey.length > 10
   );
@@ -39,6 +34,8 @@ export default function PaymentCheckoutPage() {
     | "enterprise"
     | null;
   const billingParam = urlParams.get("billing") as "monthly" | "annual" | null;
+  const successParam = urlParams.get("success");
+  const cancelledParam = urlParams.get("cancelled");
 
   const [selectedPlan] = useState<"starter" | "professional" | "enterprise">(
     planParam ?? "professional",
@@ -56,40 +53,68 @@ export default function PaymentCheckoutPage() {
     enterprise: "Enterprise",
   };
 
-  const [paymentState, setPaymentState] = useState<PaymentState>("form");
-  const [form, setForm] = useState({
-    name: "",
-    cardNumber: "",
-    expiry: "",
-    cvv: "",
-  });
-  const [errors, setErrors] = useState<Record<string, string>>({});
+  // Determine initial state from URL params
+  function getInitialState(): PaymentState {
+    if (successParam === "1") return "success";
+    if (cancelledParam === "1") return "cancelled";
+    return "form";
+  }
+
+  const [paymentState, setPaymentState] =
+    useState<PaymentState>(getInitialState);
   const [receiptId] = useState(`LKY${Date.now().toString(36).toUpperCase()}`);
 
-  function validate() {
-    const errs: Record<string, string> = {};
-    if (!form.name.trim()) errs.name = "Name is required";
-    const rawCard = form.cardNumber.replace(/\s/g, "");
-    if (rawCard.length < 16) errs.cardNumber = "Enter 16-digit card number";
-    if (!form.expiry || form.expiry.length < 5)
-      errs.expiry = "Enter valid expiry (MM/YY)";
-    if (!form.cvv || form.cvv.length < 3) errs.cvv = "Enter 3-digit CVV";
-    return errs;
-  }
-
-  async function handlePay() {
-    const errs = validate();
-    if (Object.keys(errs).length > 0) {
-      setErrors(errs);
+  async function handleProceedToCheckout() {
+    if (!actor) {
+      toast.error("Backend not ready. Please try again.");
       return;
     }
-    setErrors({});
     setPaymentState("processing");
-    // Simulate payment processing
-    await new Promise((r) => setTimeout(r, 2000));
-    setPaymentState("success");
-    toast.success("Payment processed successfully!");
+    try {
+      const configured = await actor.isStripeConfigured();
+      if (!configured) {
+        toast.error("Payment gateway not configured. Please contact support.");
+        setPaymentState("form");
+        return;
+      }
+
+      const plan = planParam ?? "professional";
+      const bill = billingParam ?? "monthly";
+      const successUrl = `${window.location.origin}/app/payment-checkout?plan=${plan}&billing=${bill}&success=1`;
+      const cancelUrl = `${window.location.origin}/app/payment-checkout?plan=${plan}&billing=${bill}&cancelled=1`;
+
+      const session = await actor.createCheckoutSession(
+        [
+          {
+            productName: `LekhyaAI ${planLabels[selectedPlan]} Plan`,
+            productDescription: "AI-Powered GST Accounting",
+            quantity: 1n,
+            priceInCents: BigInt(planAmount * 100),
+            currency: "INR",
+          },
+        ],
+        successUrl,
+        cancelUrl,
+      );
+
+      window.location.href = session;
+    } catch {
+      toast.error("Failed to start checkout. Please try again.");
+      setPaymentState("form");
+    }
   }
+
+  function handleTryAgain() {
+    // Remove success/cancelled params from URL
+    const newUrl = new URL(window.location.href);
+    newUrl.searchParams.delete("success");
+    newUrl.searchParams.delete("cancelled");
+    window.history.replaceState({}, "", newUrl.toString());
+    setPaymentState("form");
+  }
+
+  const isProcessing = paymentState === "processing";
+  const buttonDisabled = isProcessing || isFetching || !actor;
 
   return (
     <div className="min-h-screen bg-gradient-to-br from-background via-muted/20 to-background flex items-center justify-center p-4">
@@ -179,6 +204,69 @@ export default function PaymentCheckoutPage() {
                 Go to Dashboard
               </Button>
             </motion.div>
+          ) : paymentState === "cancelled" ? (
+            <motion.div
+              key="cancelled"
+              initial={{ opacity: 0, scale: 0.9 }}
+              animate={{ opacity: 1, scale: 1 }}
+              className="bg-card border border-border rounded-2xl p-8 text-center space-y-4"
+              data-ocid="payment.cancelled.error_state"
+            >
+              <motion.div
+                initial={{ scale: 0 }}
+                animate={{ scale: 1 }}
+                transition={{
+                  type: "spring",
+                  damping: 15,
+                  stiffness: 200,
+                  delay: 0.1,
+                }}
+              >
+                <XCircle className="w-16 h-16 text-destructive mx-auto" />
+              </motion.div>
+              <div>
+                <h2 className="font-display text-2xl font-bold text-foreground">
+                  Checkout Cancelled
+                </h2>
+                <p className="text-muted-foreground text-sm mt-1">
+                  Payment was not completed.
+                </p>
+              </div>
+
+              {/* Plan summary reminder */}
+              <div className="bg-muted/40 rounded-xl p-4 text-left space-y-2 text-sm">
+                <div className="flex justify-between">
+                  <span className="text-muted-foreground">Plan</span>
+                  <span className="font-medium">
+                    {planLabels[selectedPlan]} ({billing})
+                  </span>
+                </div>
+                <div className="flex justify-between">
+                  <span className="text-muted-foreground">Amount</span>
+                  <span className="font-bold text-foreground">
+                    ₹{formatINRNumber(planAmount)}
+                  </span>
+                </div>
+              </div>
+
+              <Button
+                data-ocid="payment.try_again.button"
+                onClick={handleTryAgain}
+                className="w-full bg-primary text-primary-foreground"
+              >
+                Try Again
+              </Button>
+
+              <button
+                type="button"
+                className="text-xs text-muted-foreground hover:text-foreground transition-colors"
+                onClick={() => {
+                  window.location.href = "/app";
+                }}
+              >
+                Return to Dashboard
+              </button>
+            </motion.div>
           ) : (
             <motion.div
               key="form"
@@ -220,128 +308,59 @@ export default function PaymentCheckoutPage() {
                 </div>
               </div>
 
-              {/* Payment Form */}
+              {/* Checkout CTA */}
               <div className="p-5 space-y-4">
                 <div className="flex items-center gap-2 text-xs text-muted-foreground mb-1">
                   <Lock className="w-3.5 h-3.5" />
-                  <span>Secured by 256-bit encryption</span>
+                  <span>You'll be redirected to Stripe's secure checkout</span>
                 </div>
 
-                {/* Name on Card */}
-                <div className="space-y-1.5">
-                  <Label>Name on Card</Label>
-                  <Input
-                    data-ocid="payment.name.input"
-                    value={form.name}
-                    onChange={(e) =>
-                      setForm((p) => ({ ...p, name: e.target.value }))
-                    }
-                    placeholder="Full name as on card"
-                    className={errors.name ? "border-destructive" : ""}
-                  />
-                  {errors.name && (
-                    <p
-                      className="text-xs text-destructive"
-                      data-ocid="payment.name.error_state"
-                    >
-                      {errors.name}
-                    </p>
-                  )}
+                {/* What you'll get */}
+                <div className="bg-muted/30 rounded-xl p-4 space-y-2">
+                  <p className="text-sm font-medium text-foreground">
+                    Included in {planLabels[selectedPlan]} Plan
+                  </p>
+                  <ul className="text-xs text-muted-foreground space-y-1.5">
+                    <li className="flex items-center gap-2">
+                      <span className="w-1.5 h-1.5 rounded-full bg-primary flex-shrink-0" />
+                      AI-Powered GST Accounting (GSTR-1, GSTR-3B)
+                    </li>
+                    <li className="flex items-center gap-2">
+                      <span className="w-1.5 h-1.5 rounded-full bg-primary flex-shrink-0" />
+                      Unlimited Invoices, Customers & Products
+                    </li>
+                    <li className="flex items-center gap-2">
+                      <span className="w-1.5 h-1.5 rounded-full bg-primary flex-shrink-0" />
+                      LekhyaAI Engine — Intelligent Automation
+                    </li>
+                    <li className="flex items-center gap-2">
+                      <span className="w-1.5 h-1.5 rounded-full bg-primary flex-shrink-0" />
+                      Multi-business Management & RBAC
+                    </li>
+                  </ul>
                 </div>
 
-                {/* Card Number */}
-                <div className="space-y-1.5">
-                  <Label>Card Number</Label>
-                  <div className="relative">
-                    <Input
-                      data-ocid="payment.card_number.input"
-                      value={form.cardNumber}
-                      onChange={(e) =>
-                        setForm((p) => ({
-                          ...p,
-                          cardNumber: formatCardNumber(e.target.value),
-                        }))
-                      }
-                      placeholder="1234 5678 9012 3456"
-                      className={`pr-10 font-mono ${errors.cardNumber ? "border-destructive" : ""}`}
-                      inputMode="numeric"
-                      maxLength={19}
-                    />
-                    <CreditCard className="absolute right-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
-                  </div>
-                  {errors.cardNumber && (
-                    <p
-                      className="text-xs text-destructive"
-                      data-ocid="payment.card.error_state"
-                    >
-                      {errors.cardNumber}
-                    </p>
-                  )}
-                </div>
-
-                {/* Expiry + CVV */}
-                <div className="grid grid-cols-2 gap-3">
-                  <div className="space-y-1.5">
-                    <Label>Expiry (MM/YY)</Label>
-                    <Input
-                      data-ocid="payment.expiry.input"
-                      value={form.expiry}
-                      onChange={(e) =>
-                        setForm((p) => ({
-                          ...p,
-                          expiry: formatExpiry(e.target.value),
-                        }))
-                      }
-                      placeholder="MM/YY"
-                      inputMode="numeric"
-                      maxLength={5}
-                      className={`font-mono ${errors.expiry ? "border-destructive" : ""}`}
-                    />
-                    {errors.expiry && (
-                      <p className="text-xs text-destructive">
-                        {errors.expiry}
-                      </p>
-                    )}
-                  </div>
-                  <div className="space-y-1.5">
-                    <Label>CVV</Label>
-                    <Input
-                      data-ocid="payment.cvv.input"
-                      value={form.cvv}
-                      onChange={(e) =>
-                        setForm((p) => ({
-                          ...p,
-                          cvv: e.target.value.replace(/\D/g, "").slice(0, 3),
-                        }))
-                      }
-                      placeholder="123"
-                      inputMode="numeric"
-                      maxLength={3}
-                      type="password"
-                      className={`font-mono ${errors.cvv ? "border-destructive" : ""}`}
-                    />
-                    {errors.cvv && (
-                      <p className="text-xs text-destructive">{errors.cvv}</p>
-                    )}
-                  </div>
-                </div>
-
-                {/* Pay Button */}
+                {/* Proceed Button */}
                 <Button
-                  data-ocid="payment.pay.primary_button"
-                  onClick={handlePay}
-                  disabled={paymentState === "processing"}
+                  data-ocid="payment.proceed_to_checkout.primary_button"
+                  onClick={handleProceedToCheckout}
+                  disabled={buttonDisabled}
                   className="w-full bg-primary text-primary-foreground text-base font-semibold h-11"
                 >
-                  {paymentState === "processing" ? (
+                  {isProcessing ? (
                     <>
                       <Loader2 className="w-4 h-4 mr-2 animate-spin" />
-                      Processing...
+                      Redirecting to Stripe…
+                    </>
+                  ) : isFetching ? (
+                    <>
+                      <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+                      Connecting…
                     </>
                   ) : (
                     <>
-                      <Lock className="w-4 h-4 mr-2" />
-                      Pay ₹{formatINRNumber(planAmount)}
+                      <ExternalLink className="w-4 h-4 mr-2" />
+                      Proceed to Secure Checkout
                     </>
                   )}
                 </Button>
@@ -350,7 +369,7 @@ export default function PaymentCheckoutPage() {
                   <Shield className="w-3.5 h-3.5" />
                   <span>
                     {isLiveMode
-                      ? "Live payment processing"
+                      ? "Live payment processing via Stripe"
                       : "Test mode — no real charges"}
                   </span>
                 </div>

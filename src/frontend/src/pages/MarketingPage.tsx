@@ -448,42 +448,56 @@ const features = [
 // ─── Comparison table ─────────────────────────────────────────────────────────
 const comparisonRows = [
   {
-    feature: "AI-powered GST assistant",
-    lekhya: "check",
-    tally: "cross",
-    excel: "cross",
-    other: "partial",
-  },
-  {
-    feature: "OCR invoice scanning",
-    lekhya: "check",
-    tally: "cross",
-    excel: "cross",
-    other: "partial",
-  },
-  {
-    feature: "Indian number system (lakh/crore)",
+    feature: "GST Auto-Calculate (CGST/SGST/IGST)",
     lekhya: "check",
     tally: "check",
     excel: "cross",
-    other: "partial",
+    other: "check",
   },
   {
-    feature: "Mobile-optimized web app",
+    feature: "AI Accountant Assistant",
     lekhya: "check",
     tally: "cross",
-    excel: "partial",
-    other: "partial",
+    excel: "cross",
+    other: "cross",
   },
   {
-    feature: "Real-time cash flow forecast",
+    feature: "Invoice OCR Scanning",
+    lekhya: "check",
+    tally: "cross",
+    excel: "cross",
+    other: "cross",
+  },
+  {
+    feature: "WhatsApp Invoice Send",
+    lekhya: "check",
+    tally: "cross",
+    excel: "cross",
+    other: "cross",
+  },
+  {
+    feature: "Tally Data Import",
+    lekhya: "check",
+    tally: "partial",
+    excel: "cross",
+    other: "cross",
+  },
+  {
+    feature: "B2B Reconciliation",
     lekhya: "check",
     tally: "cross",
     excel: "cross",
     other: "partial",
   },
   {
-    feature: "B2B invoice reconciliation",
+    feature: "Mobile-First PWA",
+    lekhya: "check",
+    tally: "cross",
+    excel: "partial",
+    other: "check",
+  },
+  {
+    feature: "Decentralised & Tamper-Proof",
     lekhya: "check",
     tally: "cross",
     excel: "cross",
@@ -854,11 +868,17 @@ export default function MarketingPage() {
 
             <motion.p
               variants={fadeUp}
+              className="text-base sm:text-lg text-white/60 italic mb-2"
+            >
+              "Accounting ko banaye easy — LekhyaAI"
+            </motion.p>
+            <motion.p
+              variants={fadeUp}
               className="text-lg sm:text-xl text-white/75 max-w-2xl leading-relaxed mb-10"
             >
-              India's smartest AI-powered GST accounting platform for SMEs and
-              Chartered Accountants. From invoice scanning to GSTR filing —
-              everything in one place, in your language.
+              India's first AI-powered GST accounting platform. Smart invoicing,
+              real-time tax insights, and an AI accountant that understands
+              Indian business.
             </motion.p>
 
             <motion.div
@@ -976,6 +996,50 @@ export default function MarketingPage() {
           </motion.div>
         </div>
       </section>
+
+      {/* ════════════════════════════════════════════
+          TRUST STRIP
+          ════════════════════════════════════════════ */}
+      <div
+        data-ocid="marketing.trust.section"
+        className="py-4 border-y border-border/40 overflow-hidden"
+        style={{ background: "oklch(var(--card))" }}
+      >
+        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+          <div className="flex flex-wrap items-center justify-center gap-x-8 gap-y-2 text-sm font-medium">
+            {[
+              {
+                label: "🇮🇳 Made in India",
+                color: "#FF9933",
+              },
+              {
+                label: "Atmanirbhar Bharat",
+                color: "#138808",
+              },
+              {
+                label: "✅ GST Compliant",
+                color: "oklch(0.55 0.14 185)",
+              },
+              {
+                label: "🏆 CA Trusted",
+                color: "oklch(0.65 0.18 65)",
+              },
+              {
+                label: "🔒 ICP Secured",
+                color: "oklch(0.55 0.14 185)",
+              },
+            ].map((item) => (
+              <span
+                key={item.label}
+                className="font-semibold tracking-wide"
+                style={{ color: item.color }}
+              >
+                {item.label}
+              </span>
+            ))}
+          </div>
+        </div>
+      </div>
 
       {/* ════════════════════════════════════════════
           FEATURES SECTION
@@ -1106,23 +1170,23 @@ export default function MarketingPage() {
             className="overflow-x-auto rounded-2xl border border-border/60 shadow-card"
             data-ocid="marketing.why.table"
           >
-            <table className="w-full min-w-[640px] text-sm">
+            <table className="w-full min-w-[700px] text-sm">
               <thead>
                 <tr className="bg-card border-b border-border/60">
                   <th className="text-left px-6 py-4 font-semibold text-foreground">
                     Feature
                   </th>
-                  <th className="text-center px-4 py-4 font-semibold text-primary bg-primary/5">
+                  <th className="text-center px-4 py-4 font-bold text-primary bg-primary/8 rounded-t-xl">
                     LekhyaAI
                   </th>
                   <th className="text-center px-4 py-4 font-medium text-muted-foreground">
-                    Tally
+                    Tally Prime
                   </th>
                   <th className="text-center px-4 py-4 font-medium text-muted-foreground">
-                    Excel
+                    Zoho Books
                   </th>
                   <th className="text-center px-4 py-4 font-medium text-muted-foreground">
-                    Other SaaS
+                    QuickBooks
                   </th>
                 </tr>
               </thead>
@@ -1239,6 +1303,36 @@ export default function MarketingPage() {
             >
               Enterprise-grade infrastructure, Indian-market-grade intelligence.
             </motion.p>
+          </motion.div>
+
+          {/* Technology pills */}
+          <motion.div
+            initial={{ opacity: 0, y: 16 }}
+            whileInView={{ opacity: 1, y: 0 }}
+            viewport={{ once: true }}
+            className="flex flex-wrap justify-center gap-3 mb-14"
+          >
+            {[
+              { name: "Motoko", desc: "Secure ICP backend" },
+              { name: "React 19", desc: "Fast reactive UI" },
+              { name: "TypeScript", desc: "Type-safe frontend" },
+              { name: "Tailwind CSS", desc: "Utility-first styling" },
+              { name: "Internet Computer", desc: "Decentralised cloud" },
+              { name: "LekhyaAI Engine", desc: "Proprietary AI brain" },
+              { name: "LekhyaAI OCR", desc: "Vision document scanner" },
+            ].map((tech) => (
+              <div
+                key={tech.name}
+                className="flex items-center gap-2 px-4 py-2 rounded-full border border-border/60 bg-card hover:border-primary/40 transition-colors"
+              >
+                <span className="text-sm font-semibold text-foreground">
+                  {tech.name}
+                </span>
+                <span className="text-xs text-muted-foreground">
+                  — {tech.desc}
+                </span>
+              </div>
+            ))}
           </motion.div>
 
           <motion.div

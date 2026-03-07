@@ -1,6 +1,6 @@
 /**
  * SuperUser / Developer mode utilities
- * The developer PIN is stored hashed in localStorage.
+ * The developer PIN is stored as a SHA-256 hash in localStorage.
  * Default PIN: LEKHYA2024
  */
 
@@ -8,43 +8,55 @@ const LS_SUPERUSER_ACTIVE = "lekhya_superuser_active";
 const LS_SUPERUSER_PIN_HASH = "lekhya_superuser_pin_hash";
 const DEFAULT_PIN = "LEKHYA2024";
 
-/** Very lightweight hash for PIN storage (not crypto-grade, just obfuscation) */
-function simpleHash(str: string): string {
-  let hash = 5381;
-  for (let i = 0; i < str.length; i++) {
-    hash = (hash * 33) ^ str.charCodeAt(i);
-  }
-  return (hash >>> 0).toString(36);
+/** Secure SHA-256 hash using Web Crypto API */
+async function sha256Hash(str: string): Promise<string> {
+  const encoder = new TextEncoder();
+  const data = encoder.encode(str.trim());
+  const hashBuffer = await crypto.subtle.digest("SHA-256", data);
+  const hashArray = Array.from(new Uint8Array(hashBuffer));
+  return hashArray.map((b) => b.toString(16).padStart(2, "0")).join("");
 }
 
-function getStoredPinHash(): string {
-  return localStorage.getItem(LS_SUPERUSER_PIN_HASH) ?? simpleHash(DEFAULT_PIN);
+async function getStoredPinHash(): Promise<string> {
+  const stored = localStorage.getItem(LS_SUPERUSER_PIN_HASH);
+  if (stored) return stored;
+  // First time: hash the default PIN and store it
+  const defaultHash = await sha256Hash(DEFAULT_PIN);
+  localStorage.setItem(LS_SUPERUSER_PIN_HASH, defaultHash);
+  return defaultHash;
 }
 
 export function isSuperUserActive(): boolean {
   return localStorage.getItem(LS_SUPERUSER_ACTIVE) === "1";
 }
 
-export function verifySuperUserPin(pin: string): boolean {
-  return simpleHash(pin.trim()) === getStoredPinHash();
+export async function verifySuperUserPin(pin: string): Promise<boolean> {
+  const hashed = await sha256Hash(pin);
+  const stored = await getStoredPinHash();
+  return hashed === stored;
 }
 
-export function activateSuperUser(pin: string): boolean {
-  if (verifySuperUserPin(pin)) {
+export async function activateSuperUser(pin: string): Promise<boolean> {
+  const ok = await verifySuperUserPin(pin);
+  if (ok) {
     localStorage.setItem(LS_SUPERUSER_ACTIVE, "1");
-    return true;
   }
-  return false;
+  return ok;
 }
 
 export function deactivateSuperUser(): void {
   localStorage.removeItem(LS_SUPERUSER_ACTIVE);
 }
 
-export function changeSuperUserPin(oldPin: string, newPin: string): boolean {
-  if (!verifySuperUserPin(oldPin)) return false;
+export async function changeSuperUserPin(
+  oldPin: string,
+  newPin: string,
+): Promise<boolean> {
+  const valid = await verifySuperUserPin(oldPin);
+  if (!valid) return false;
   if (!newPin || newPin.trim().length < 6) return false;
-  localStorage.setItem(LS_SUPERUSER_PIN_HASH, simpleHash(newPin.trim()));
+  const newHash = await sha256Hash(newPin.trim());
+  localStorage.setItem(LS_SUPERUSER_PIN_HASH, newHash);
   return true;
 }
 
@@ -67,6 +79,13 @@ export interface SuperUserConfig {
   autoBackupFrequency: "daily" | "weekly" | "monthly";
   backupDestination: string;
   developerNotes: string;
+  dbConnectionString: string;
+  dbApiKey: string;
+  dbWebhookUrl: string;
+  dbWebhookSecret: string;
+  dbSyncOnInvoice: boolean;
+  dbSyncOnExpense: boolean;
+  dbSyncOnPayment: boolean;
 }
 
 const LS_SUPERUSER_CONFIG = "lekhya_superuser_config";
@@ -88,6 +107,13 @@ const DEFAULT_CONFIG: SuperUserConfig = {
   autoBackupFrequency: "daily",
   backupDestination: "",
   developerNotes: "",
+  dbConnectionString: "",
+  dbApiKey: "",
+  dbWebhookUrl: "",
+  dbWebhookSecret: "",
+  dbSyncOnInvoice: false,
+  dbSyncOnExpense: false,
+  dbSyncOnPayment: false,
 };
 
 export function getSuperUserConfig(): SuperUserConfig {

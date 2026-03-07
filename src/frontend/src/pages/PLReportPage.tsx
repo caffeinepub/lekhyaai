@@ -42,7 +42,9 @@ interface PLData {
   from: string;
   to: string;
   revenue: PLSection;
-  expenses: PLSection;
+  cogs: PLSection;
+  opEx: PLSection;
+  expenses: PLSection; // kept for backward compat
   grossProfit: number;
   netProfit: number;
 }
@@ -83,20 +85,32 @@ function computePL(
     return ms >= fromMs && ms <= toMs;
   });
 
-  const expensesByCategory = periodExpenses.reduce(
-    (acc, exp) => {
-      const cat = exp.category || "Miscellaneous";
-      acc[cat] = (acc[cat] || 0) + Number(exp.amount) / 100;
-      return acc;
-    },
-    {} as Record<string, number>,
-  );
+  // Split expenses into COGS vs Operating Expenses
+  const cogsKeywords =
+    /purchases?|raw\s*material|stock|cogs|inventory|goods|manufacturing|direct/i;
 
+  const cogsByCategory: Record<string, number> = {};
+  const opExByCategory: Record<string, number> = {};
+
+  for (const exp of periodExpenses) {
+    const cat = exp.category || "Miscellaneous";
+    const amount = Number(exp.amount) / 100;
+    if (cogsKeywords.test(cat)) {
+      cogsByCategory[cat] = (cogsByCategory[cat] || 0) + amount;
+    } else {
+      opExByCategory[cat] = (opExByCategory[cat] || 0) + amount;
+    }
+  }
+
+  const totalCogs = Object.values(cogsByCategory).reduce((s, v) => s + v, 0);
+  const totalOpEx = Object.values(opExByCategory).reduce((s, v) => s + v, 0);
   const totalRevenue = salesRevenue + otherIncome;
-  const totalExpenses = Object.values(expensesByCategory).reduce(
-    (s, v) => s + v,
-    0,
-  );
+  const grossProfit = totalRevenue - totalCogs;
+  const netProfit = grossProfit - totalOpEx;
+
+  // Backward-compat: all expenses combined
+  const allExpensesByCategory = { ...cogsByCategory, ...opExByCategory };
+  const totalExpenses = totalCogs + totalOpEx;
 
   return {
     from,
@@ -111,16 +125,32 @@ function computePL(
       ],
       total: totalRevenue,
     },
+    cogs: {
+      label: "Cost of Goods Sold",
+      items: Object.entries(cogsByCategory).map(([name, amount]) => ({
+        name,
+        amount,
+      })),
+      total: totalCogs,
+    },
+    opEx: {
+      label: "Operating Expenses",
+      items: Object.entries(opExByCategory).map(([name, amount]) => ({
+        name,
+        amount,
+      })),
+      total: totalOpEx,
+    },
     expenses: {
       label: "Expenses",
-      items: Object.entries(expensesByCategory).map(([name, amount]) => ({
+      items: Object.entries(allExpensesByCategory).map(([name, amount]) => ({
         name,
         amount,
       })),
       total: totalExpenses,
     },
-    grossProfit: salesRevenue - totalExpenses,
-    netProfit: totalRevenue - totalExpenses,
+    grossProfit,
+    netProfit,
   };
 }
 
@@ -519,38 +549,33 @@ export default function PLReportPage() {
               />
             </div>
 
-            <Separator className="my-3 mx-4" />
-
-            {/* Expenses Section */}
-            <div className="mb-2">
-              <div className="flex items-center gap-2 px-4 py-2">
-                <TrendingDown className="w-4 h-4 text-destructive" />
-                <h4 className="text-xs font-bold uppercase tracking-wider text-destructive">
-                  Expenses
-                </h4>
-              </div>
-              {plData.expenses.items.length === 0 ? (
-                <PLSectionRow
-                  label="No expense transactions"
-                  amount={0}
-                  indent
-                />
-              ) : (
-                plData.expenses.items.map((item) => (
+            {/* COGS Section (only if any COGS items) */}
+            {plData.cogs.items.length > 0 && (
+              <>
+                <Separator className="my-3 mx-4" />
+                <div className="mb-2">
+                  <div className="flex items-center gap-2 px-4 py-2">
+                    <TrendingDown className="w-4 h-4 text-orange-500" />
+                    <h4 className="text-xs font-bold uppercase tracking-wider text-orange-500">
+                      Cost of Goods Sold (COGS)
+                    </h4>
+                  </div>
+                  {plData.cogs.items.map((item) => (
+                    <PLSectionRow
+                      key={item.name}
+                      label={item.name}
+                      amount={item.amount}
+                      indent
+                    />
+                  ))}
                   <PLSectionRow
-                    key={item.name}
-                    label={item.name}
-                    amount={item.amount}
-                    indent
+                    label="Total COGS"
+                    amount={plData.cogs.total}
+                    bold
                   />
-                ))
-              )}
-              <PLSectionRow
-                label="Total Expenses"
-                amount={plData.expenses.total}
-                bold
-              />
-            </div>
+                </div>
+              </>
+            )}
 
             <Separator className="my-3 mx-4" />
 
@@ -562,7 +587,39 @@ export default function PLReportPage() {
               highlight={plData.grossProfit >= 0 ? "profit" : "loss"}
             />
 
-            <Separator className="my-2 mx-4" />
+            {/* Operating Expenses Section */}
+            <Separator className="my-3 mx-4" />
+            <div className="mb-2">
+              <div className="flex items-center gap-2 px-4 py-2">
+                <TrendingDown className="w-4 h-4 text-destructive" />
+                <h4 className="text-xs font-bold uppercase tracking-wider text-destructive">
+                  Operating Expenses
+                </h4>
+              </div>
+              {plData.opEx.items.length === 0 ? (
+                <PLSectionRow
+                  label="No operating expense transactions"
+                  amount={0}
+                  indent
+                />
+              ) : (
+                plData.opEx.items.map((item) => (
+                  <PLSectionRow
+                    key={item.name}
+                    label={item.name}
+                    amount={item.amount}
+                    indent
+                  />
+                ))
+              )}
+              <PLSectionRow
+                label="Total Operating Expenses"
+                amount={plData.opEx.total}
+                bold
+              />
+            </div>
+
+            <Separator className="my-3 mx-4" />
 
             {/* Net Profit */}
             <div className="px-4 pb-4 pt-2">

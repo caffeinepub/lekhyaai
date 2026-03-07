@@ -12,6 +12,7 @@ import MarketingLayout from "./components/MarketingLayout";
 import RbacGuard from "./components/RbacGuard";
 import SplashScreen from "./components/SplashScreen";
 import { BusinessProvider, useBusiness } from "./context/BusinessContext";
+import { NotificationProvider } from "./context/NotificationContext";
 import { ThemeProvider } from "./context/ThemeContext";
 import { useInternetIdentity } from "./hooks/useInternetIdentity";
 import LoginPage from "./pages/LoginPage";
@@ -51,6 +52,8 @@ const OnboardingPortalPage = lazy(() => import("./pages/OnboardingPortalPage"));
 const QuotationPage = lazy(() => import("./pages/QuotationPage"));
 const PaymentCheckoutPage = lazy(() => import("./pages/PaymentCheckoutPage"));
 const DemoPage = lazy(() => import("./pages/DemoPage"));
+const CrmPage = lazy(() => import("./pages/CrmPage"));
+const ActivityLogPage = lazy(() => import("./pages/ActivityLogPage"));
 
 function PageLoader() {
   return (
@@ -367,6 +370,30 @@ const demoRoute = createRoute({
   ),
 });
 
+const crmRoute = createRoute({
+  getParentRoute: () => layoutRoute,
+  path: "/app/crm",
+  component: () => (
+    <Suspense fallback={<PageLoader />}>
+      <RbacGuard module="settings">
+        <CrmPage />
+      </RbacGuard>
+    </Suspense>
+  ),
+});
+
+const activityLogRoute = createRoute({
+  getParentRoute: () => layoutRoute,
+  path: "/app/activity-log",
+  component: () => (
+    <Suspense fallback={<PageLoader />}>
+      <RbacGuard module="settings">
+        <ActivityLogPage />
+      </RbacGuard>
+    </Suspense>
+  ),
+});
+
 const routeTree = rootRoute.addChildren([
   layoutRoute.addChildren([
     dashboardRoute,
@@ -395,6 +422,8 @@ const routeTree = rootRoute.addChildren([
     quotationRoute,
     paymentCheckoutRoute,
     demoRoute,
+    crmRoute,
+    activityLogRoute,
   ]),
 ]);
 
@@ -485,6 +514,7 @@ export default function App() {
   if (isMarketingPath()) {
     return (
       <ThemeProvider>
+        <Toaster richColors position="top-right" />
         <MarketingLayout>
           <MarketingPage />
         </MarketingLayout>
@@ -513,8 +543,10 @@ export default function App() {
   if (isAppPath()) {
     return (
       <ThemeProvider>
-        {!splashDone && <SplashScreen onDone={() => setSplashDone(true)} />}
-        <AuthGate />
+        <NotificationProvider>
+          {!splashDone && <SplashScreen onDone={() => setSplashDone(true)} />}
+          <AuthGate />
+        </NotificationProvider>
       </ThemeProvider>
     );
   }

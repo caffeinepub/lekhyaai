@@ -1,52 +1,63 @@
-# LekhyaAI
+# LekhyaAI — Phase A: CRM, Activity Log, Notifications & Real-time Clock
 
 ## Current State
 
-LekhyaAI is a full-stack Indian GST accounting SaaS with:
-- Stripe component already in caffeine.lock.json
-- Backend already exposes: `createCheckoutSession`, `isStripeConfigured`, `setStripeConfiguration`, `getStripeSessionStatus`
-- `SubscriptionPage` already calls `createCheckoutSession` and redirects to Stripe checkout
-- `PaymentCheckoutPage` is a fake card form UI (simulated, no real payment)
-- `SuperuserSettingsPage` has a "Payment Gateway" section that saves API keys to localStorage only — it does NOT call `setStripeConfiguration` on the backend
-- No success/cancel URL handling after Stripe redirects back
+LekhyaAI is a fully-built India-first SaaS accounting web app with:
+- Marketing site at `/`
+- Accounting webapp at `/app` (Dashboard, Invoices, Customers, Vendors, Products, Expenses, Ledger, GST Reports, P&L, Balance Sheet, Bank Accounts, Petty Cash, Journal Entry, Tally Import, B2B Reconciliation, GST Filing Calendar)
+- AI Assistant (floating + full-page)
+- RBAC matrix (25+ modules, route-level guards)
+- SuperUser Settings at `/app/superuser-settings` (PIN: LEKHYA2024)
+- Onboarding Portal at `/app/onboard`
+- Stripe payment wired end-to-end
+- Demo page at `/app/demo`
+- Backend: ICP Motoko canister with Business, Customer, Vendor, Product, Invoice, Expense, Payment, GstReport, BankAccount, PettyCash, JournalEntry types
 
 ## Requested Changes (Diff)
 
 ### Add
-- A "Configure Stripe on Backend" button in SuperUser Settings Payment Gateway section that calls `actor.setStripeConfiguration({ secretKey, allowedCountries })` to persist the key in the ICP backend
-- A status indicator in SuperUser Settings showing whether Stripe is configured on the backend (`actor.isStripeConfigured()`)
-- Success and cancel URL callback handling in `SubscriptionPage` — read `?success=1` or `?cancelled=1` from the URL and show appropriate toast/UI
+
+**1. SuperUser CRM with Dynamic IDs**
+- Backend: `CrmLead` type with fields: id (formatted ENQ-XXXX / FLW-XXXX / ONB-XXXX), name, email, phone, companyName, stage (enquiry | followup | onboarded), kycType (india | overseas), gstin, pan, cin, tinEin, incorporationCert, notes, subscriptionModules (array of selected modules), createdAt
+- Backend functions: createCrmLead, getCrmLeads, updateCrmLead, updateLeadStage, deleteCrmLead
+- Frontend: `/app/crm` page — Kanban/table view with Enquiry → Follow-up → Onboarded columns, editable KYC drawer, dynamic ID display
+
+**2. Enquiry Form on Marketing Page**
+- Frontend addition: Enquiry form section on `/` (MarketingPage) with name, email, phone, company, subscription module dropdown (multi-select), message; submits to backend CRM as ENQ-XXXX lead
+
+**3. Real-time Clock**
+- Frontend: Fixed clock component in top-right corner of AppLayout header, shows time in user's local timezone (auto-detected), updates every second, formats as HH:MM:SS with date
+
+**4. Bell Icon Notification System**
+- Backend: `Notification` type with id, fromRole (superuser | admin | user), toUserId (Principal), message, isRead, createdAt; functions: createNotification, getMyNotifications, markNotificationRead, markAllRead
+- Frontend: Bell icon in AppLayout header with unread badge count; dropdown panel showing notification list; SuperUser can compose and send notifications to any client; Client Admin can send to Client Users
+
+**5. Gantt Chart Activity Log (SuperUser only)**
+- Backend: `ActivityLog` type with id, userId (Principal), userName, action, module, timestamp, ipHash; function: logActivity (called on key user actions), getSuperUserActivityLogs (admin-only)
+- Frontend: `/app/activity-log` page (SuperUser only, PIN-protected) with Gantt-style timeline chart showing per-user module activity over time, filterable by date range and user; also shows raw log table beneath chart
+
+**6. Email Trigger Placeholders**
+- Backend: email trigger functions as stubs (sendWelcomeEmail, sendRenewalReminderEmail, sendBackupRequestEmail) — these accept parameters and log the attempt, returning a status; ready to wire once email component is enabled
+- Frontend: UI elements that call these stubs (e.g. "Send Welcome Email" button in CRM on onboarding, renewal reminder display in Activity Log)
 
 ### Modify
-- `PaymentCheckoutPage`: Replace the fake card form with a real Stripe Checkout redirect flow using `createCheckoutSession`. Show plan summary, a "Proceed to Secure Checkout" button that calls the backend, and redirects to the Stripe-hosted checkout page. On return (success/cancel URL), show appropriate status.
-- `SuperuserSettingsPage` Payment Gateway section: Add a "Save to Backend" button that calls `setStripeConfiguration` with the entered secret key and a default `allowedCountries: ["IN"]` (India). Show a live/not-configured badge based on `isStripeConfigured()`.
-- `SubscriptionPage`: Handle `?success=1` (show success message, subscription activated) and `?cancelled=1` (show cancelled message) query params after Stripe redirect returns
+
+- **AppLayout header**: Add real-time clock (right side) and notification bell (next to clock); both visible on all `/app` pages
+- **MarketingPage**: Add enquiry form section before the footer
+- **SuperuserSettingsPage**: Add link/button to CRM page and Activity Log
+- **App.tsx**: Add routes for `/app/crm` and `/app/activity-log`
+- **Sidebar navigation**: Add "CRM" and "Activity Log" items (visible only in Developer Mode / SuperUser)
 
 ### Remove
-- The fake card input fields (card number, expiry, CVV, name on card) from `PaymentCheckoutPage`
-- The simulated 2-second delay payment processing from `PaymentCheckoutPage`
+
+Nothing removed.
 
 ## Implementation Plan
 
-1. **SuperuserSettingsPage**: 
-   - Import `useActor` to get actor
-   - Add `isStripeConfigured` query using `actor.isStripeConfigured()` — show a badge (Configured / Not Configured)
-   - Add "Save to Backend" button in Payment Gateway section that calls `actor.setStripeConfiguration({ secretKey: config.paymentGatewaySecret, allowedCountries: ["IN"] })`
-   - Show success/error toast after save
-
-2. **PaymentCheckoutPage**:
-   - Remove fake card form UI
-   - Add plan summary card with amount, plan name, billing period
-   - Add "Proceed to Secure Checkout" button that:
-     - Calls `actor.isStripeConfigured()` — if not configured, show error with support message
-     - Calls `actor.createCheckoutSession(items, successUrl, cancelUrl)` 
-     - Redirects to the returned Stripe URL
-   - Handle `?success=1` URL param: show success state with receipt and "Go to Dashboard" button
-   - Handle `?cancelled=1` URL param: show cancelled state with "Try Again" button
-   - Keep the existing plan summary header (plan name, amount, billing mode badge)
-
-3. **SubscriptionPage**:
-   - Read URL params on mount
-   - If `?success=1`: show success toast "Subscription activated! You now have full access."
-   - If `?cancelled=1`: show info toast "Checkout was cancelled."
-   - Clean up URL params after handling (replace URL without query string)
+1. **Backend (Motoko)**: Add CrmLead, Notification, ActivityLog types; add CRUD functions for all three; add email stub functions; maintain counters for ENQ/FLW/ONB dynamic IDs
+2. **Frontend - Real-time Clock**: Small `RealtimeClock` component, placed in AppLayout header top-right
+3. **Frontend - Notification Bell**: `NotificationBell` component with bell icon, unread count badge, dropdown panel; SuperUser compose modal
+4. **Frontend - CRM Page**: `/app/crm` with kanban columns (Enquiry, Follow-up, Onboarded), KYC drawer for India/Overseas fields, module selection, lead cards with dynamic IDs
+5. **Frontend - Enquiry Form**: Add to MarketingPage as a dedicated section with form fields and module multi-select dropdown
+6. **Frontend - Activity Log / Gantt Page**: `/app/activity-log` with a horizontal Gantt-style timeline (using lightweight SVG or recharts) and raw log table, SuperUser-only access
+7. **Frontend - Routes + Navigation**: Wire new routes in App.tsx, add sidebar items gated by developer mode

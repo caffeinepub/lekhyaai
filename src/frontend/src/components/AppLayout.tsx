@@ -9,6 +9,7 @@ import {
 import { cn } from "@/lib/utils";
 import { Link, Outlet, useLocation } from "@tanstack/react-router";
 import {
+  Activity,
   ArrowLeftRight,
   BarChart3,
   BookOpen,
@@ -51,6 +52,8 @@ import CreateBusinessModal from "./CreateBusinessModal";
 import FloatingAiWidget from "./FloatingAiWidget";
 import FloatingCalculator from "./FloatingCalculator";
 import MandalaDecor from "./MandalaDecor";
+import NotificationBell from "./NotificationBell";
+import RealtimeClock from "./RealtimeClock";
 
 const navItems: {
   path: string;
@@ -214,6 +217,18 @@ export default function AppLayout() {
             path: "/app/onboard",
             icon: Shield,
             label: "Onboard Portal",
+            module: "settings" as RbacModule,
+          },
+          {
+            path: "/app/crm",
+            icon: Users,
+            label: "CRM",
+            module: "settings" as RbacModule,
+          },
+          {
+            path: "/app/activity-log",
+            icon: Activity,
+            label: "Activity Log",
             module: "settings" as RbacModule,
           },
         ]
@@ -383,7 +398,7 @@ export default function AppLayout() {
       {/* Main content area */}
       <div className="flex-1 flex flex-col min-w-0 overflow-hidden">
         {/* Mobile header */}
-        <header className="md:hidden flex items-center gap-3 px-4 py-3 bg-card border-b border-border">
+        <header className="md:hidden flex items-center gap-2 px-4 py-3 bg-card border-b border-border">
           <div className="flex items-center gap-2 flex-1 min-w-0">
             {logoUrl ? (
               <img
@@ -403,6 +418,9 @@ export default function AppLayout() {
             </span>
           </div>
 
+          {/* Notification bell — always visible */}
+          <NotificationBell />
+
           {/* Business switcher mobile */}
           <DropdownMenu>
             <DropdownMenuTrigger asChild>
@@ -410,7 +428,7 @@ export default function AppLayout() {
                 variant="outline"
                 size="sm"
                 data-ocid="nav.mobile_business_select"
-                className="max-w-[140px] text-xs h-8"
+                className="max-w-[120px] text-xs h-8"
               >
                 <Building2 className="w-3 h-3 mr-1 flex-shrink-0" />
                 <span className="truncate">
@@ -448,6 +466,13 @@ export default function AppLayout() {
             </DropdownMenuContent>
           </DropdownMenu>
         </header>
+
+        {/* Desktop top bar — clock + notifications */}
+        <div className="hidden md:flex items-center justify-end gap-3 px-4 py-2 bg-card border-b border-border">
+          <RealtimeClock />
+          <div className="w-px h-4 bg-border" />
+          <NotificationBell />
+        </div>
 
         {/* Page content */}
         <main className="flex-1 overflow-y-auto scrollbar-thin pb-20 md:pb-0">

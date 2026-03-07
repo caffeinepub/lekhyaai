@@ -307,6 +307,61 @@ actor {
     gstPayable : Nat;
   };
 
+  // [NEW] CRM Leads System
+  public type LeadStage = {
+    #enquiry;
+    #followup;
+    #onboarded;
+  };
+
+  public type KycType = {
+    #india;
+    #overseas;
+  };
+
+  public type CrmLead = {
+    id : Nat;
+    formattedId : Text;
+    name : Text;
+    email : Text;
+    phone : Text;
+    companyName : Text;
+    stage : LeadStage;
+    kycType : KycType;
+    gstin : Text;
+    pan : Text;
+    cin : Text;
+    tinEin : Text;
+    incorporationCert : Text;
+    notes : Text;
+    subscriptionModules : [Text];
+    createdAt : Time.Time;
+  };
+
+  // [NEW] Notifications System
+  public type Notification = {
+    id : Nat;
+    fromPrincipal : Principal;
+    fromRole : Text;
+    toAll : Bool;
+    toPrincipal : ?Principal;
+    title : Text;
+    message : Text;
+    isRead : Bool;
+    createdAt : Time.Time;
+  };
+
+  // [NEW] Activity Log System
+  public type ActivityLog = {
+    id : Nat;
+    userId : Principal;
+    userName : Text;
+    action : Text;
+    moduleName : Text;
+    details : Text;
+    timestamp : Time.Time;
+  };
+
   var stripeConfig : ?Stripe.StripeConfiguration = null;
 
   // Storage Maps
@@ -330,6 +385,11 @@ actor {
   let journalEntries = Map.empty<Nat, JournalEntry>();
   let journalEntryLines = Map.empty<Nat, JournalEntryLine>();
 
+  // [NEW] Storage for CRM, Notifications, Activity Logs
+  let crmLeads = Map.empty<Nat, CrmLead>();
+  let notifications = Map.empty<Nat, Notification>();
+  let activityLogs = Map.empty<Nat, ActivityLog>();
+
   // ID Counters
   var businessIdCounter = 1;
   var businessUserRoleIdCounter = 1;
@@ -348,6 +408,13 @@ actor {
   var accountIdCounter = 1;
   var journalEntryIdCounter = 1;
   var journalEntryLineIdCounter = 1;
+
+  // [NEW] CRM ID Counters
+  var enquiryCounter = 1001;
+  var followupCounter = 1001;
+  var onboardedCounter = 1001;
+  var notificationIdCounter = 1;
+  var activityLogIdCounter = 1;
 
   // Helper function to check if user has any role for a business
   func hasBusinessAccess(caller : Principal, businessId : Nat) : Bool {

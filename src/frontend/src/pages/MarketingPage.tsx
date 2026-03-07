@@ -1,6 +1,8 @@
 import MandalaDecor from "@/components/MandalaDecor";
 import { cn } from "@/lib/utils";
 import { type Variants, motion } from "motion/react";
+import { useState } from "react";
+import { toast } from "sonner";
 
 // ─── SVG Icons ────────────────────────────────────────────────────────────────
 
@@ -770,7 +772,118 @@ const staggerContainer: Variants = {
 };
 
 // ─── Main Page ────────────────────────────────────────────────────────────────
+// ─── CRM Lead helpers (mirrors CrmPage logic) ──────────────────────
+const LS_CRM = "lekhya_crm_leads";
+const LS_ENQ = "lekhya_crm_enq_counter";
+
+function getEnqCounter(): number {
+  const v = localStorage.getItem(LS_ENQ);
+  return v ? Number(v) : 1001;
+}
+
+function consumeEnqCounter(): number {
+  const current = getEnqCounter();
+  localStorage.setItem(LS_ENQ, String(current + 1));
+  return current;
+}
+
+function saveEnquiry(data: {
+  name: string;
+  email: string;
+  phone: string;
+  companyName: string;
+  modules: string[];
+  message: string;
+}) {
+  const leads = (() => {
+    try {
+      const raw = localStorage.getItem(LS_CRM);
+      if (raw) return JSON.parse(raw) as object[];
+    } catch {
+      /* ignore */
+    }
+    return [];
+  })();
+
+  const counter = consumeEnqCounter();
+  const newLead = {
+    id: `crm-enq-${Date.now()}`,
+    formattedId: `ENQ-${counter}`,
+    name: data.name,
+    email: data.email,
+    phone: data.phone,
+    companyName: data.companyName,
+    stage: "enquiry",
+    kycType: "india",
+    subscriptionModules: data.modules,
+    notes: data.message,
+    createdAt: Date.now(),
+  };
+  localStorage.setItem(LS_CRM, JSON.stringify([newLead, ...leads]));
+}
+
+const ENQUIRY_MODULES = [
+  "Accounting",
+  "GST Filing",
+  "Invoicing",
+  "Payroll",
+  "Banking",
+  "Inventory",
+  "Reports",
+  "AI Assistant",
+];
+
 export default function MarketingPage() {
+  // ─── Enquiry form state ──────────────────────────────────────────
+  const [enqName, setEnqName] = useState("");
+  const [enqEmail, setEnqEmail] = useState("");
+  const [enqPhone, setEnqPhone] = useState("");
+  const [enqCompany, setEnqCompany] = useState("");
+  const [enqModules, setEnqModules] = useState<string[]>([]);
+  const [enqMessage, setEnqMessage] = useState("");
+  const [enqSubmitted, setEnqSubmitted] = useState(false);
+  const [enqError, setEnqError] = useState("");
+
+  function toggleEnqModule(mod: string) {
+    setEnqModules((prev) =>
+      prev.includes(mod) ? prev.filter((m) => m !== mod) : [...prev, mod],
+    );
+  }
+
+  function handleEnqSubmit(e: React.FormEvent) {
+    e.preventDefault();
+    if (
+      !enqName.trim() ||
+      !enqEmail.trim() ||
+      !enqPhone.trim() ||
+      !enqCompany.trim()
+    ) {
+      setEnqError("Please fill in all required fields.");
+      return;
+    }
+    setEnqError("");
+    saveEnquiry({
+      name: enqName,
+      email: enqEmail,
+      phone: enqPhone,
+      companyName: enqCompany,
+      modules: enqModules,
+      message: enqMessage,
+    });
+    setEnqSubmitted(true);
+    toast.success(
+      "Your enquiry has been submitted! Our team will contact you shortly.",
+    );
+    // reset
+    setEnqName("");
+    setEnqEmail("");
+    setEnqPhone("");
+    setEnqCompany("");
+    setEnqModules([]);
+    setEnqMessage("");
+    setTimeout(() => setEnqSubmitted(false), 5000);
+  }
+
   return (
     <div className="overflow-x-hidden" data-ocid="marketing.page">
       {/* ════════════════════════════════════════════
@@ -1685,6 +1798,227 @@ export default function MarketingPage() {
                   </svg>
                 </a>
               </div>
+            </motion.div>
+          </motion.div>
+        </div>
+      </section>
+
+      {/* ════════════════════════════════════════════
+          ENQUIRY / REQUEST A DEMO FORM
+          ════════════════════════════════════════════ */}
+      <section data-ocid="enquiry.section" className="py-20 bg-muted/30">
+        <div className="max-w-2xl mx-auto px-4 sm:px-6 lg:px-8">
+          <motion.div
+            initial="hidden"
+            whileInView="visible"
+            viewport={{ once: true, amount: 0.3 }}
+            variants={staggerContainer}
+          >
+            <motion.div variants={fadeUp} className="text-center mb-8">
+              <span
+                className="inline-block text-xs font-semibold uppercase tracking-widest px-3 py-1.5 rounded-full mb-4"
+                style={{
+                  background: "oklch(0.65 0.18 65 / 0.1)",
+                  color: "oklch(0.55 0.18 65)",
+                  border: "1px solid oklch(0.65 0.18 65 / 0.25)",
+                }}
+              >
+                Get in Touch
+              </span>
+              <h2 className="font-display text-3xl sm:text-4xl text-foreground mb-3">
+                Request a Demo
+              </h2>
+              <p className="text-muted-foreground">
+                Tell us about your business and we'll get back to you within 24
+                hours with a personalised walkthrough.
+              </p>
+            </motion.div>
+
+            <motion.div
+              variants={fadeUp}
+              className="rounded-2xl border border-border bg-card shadow-lg p-6 sm:p-8"
+            >
+              {enqSubmitted ? (
+                <div
+                  data-ocid="enquiry.success_state"
+                  className="text-center py-10"
+                >
+                  <div
+                    className="w-16 h-16 rounded-2xl mx-auto flex items-center justify-center mb-4"
+                    style={{ background: "oklch(0.55 0.18 155 / 0.12)" }}
+                  >
+                    <svg
+                      width="32"
+                      height="32"
+                      viewBox="0 0 32 32"
+                      fill="none"
+                      aria-hidden="true"
+                      style={{ color: "oklch(0.55 0.18 155)" }}
+                    >
+                      <circle
+                        cx="16"
+                        cy="16"
+                        r="14"
+                        stroke="currentColor"
+                        strokeWidth="2"
+                      />
+                      <path
+                        d="M10 16l4 4 8-8"
+                        stroke="currentColor"
+                        strokeWidth="2.5"
+                        strokeLinecap="round"
+                        strokeLinejoin="round"
+                      />
+                    </svg>
+                  </div>
+                  <h3 className="font-display text-xl text-foreground mb-2">
+                    Enquiry Received!
+                  </h3>
+                  <p className="text-muted-foreground text-sm">
+                    Thank you for reaching out. Our team will contact you within
+                    24 hours.
+                  </p>
+                </div>
+              ) : (
+                <form onSubmit={handleEnqSubmit} className="space-y-4">
+                  {enqError && (
+                    <p className="text-sm text-destructive bg-destructive/10 rounded-lg px-3 py-2">
+                      {enqError}
+                    </p>
+                  )}
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                    <div>
+                      <label
+                        htmlFor="enq-name"
+                        className="block text-sm font-medium text-foreground mb-1"
+                      >
+                        Full Name <span className="text-destructive">*</span>
+                      </label>
+                      <input
+                        id="enq-name"
+                        type="text"
+                        data-ocid="enquiry.name.input"
+                        required
+                        value={enqName}
+                        onChange={(e) => setEnqName(e.target.value)}
+                        placeholder="Rajesh Kumar"
+                        className="w-full px-3 py-2 rounded-lg border border-border bg-background text-foreground text-sm focus:outline-none focus:ring-2 focus:ring-primary/50"
+                      />
+                    </div>
+                    <div>
+                      <label
+                        htmlFor="enq-company"
+                        className="block text-sm font-medium text-foreground mb-1"
+                      >
+                        Company Name <span className="text-destructive">*</span>
+                      </label>
+                      <input
+                        id="enq-company"
+                        type="text"
+                        data-ocid="enquiry.company.input"
+                        required
+                        value={enqCompany}
+                        onChange={(e) => setEnqCompany(e.target.value)}
+                        placeholder="Acme Pvt Ltd"
+                        className="w-full px-3 py-2 rounded-lg border border-border bg-background text-foreground text-sm focus:outline-none focus:ring-2 focus:ring-primary/50"
+                      />
+                    </div>
+                    <div>
+                      <label
+                        htmlFor="enq-email"
+                        className="block text-sm font-medium text-foreground mb-1"
+                      >
+                        Business Email{" "}
+                        <span className="text-destructive">*</span>
+                      </label>
+                      <input
+                        id="enq-email"
+                        type="email"
+                        data-ocid="enquiry.email.input"
+                        required
+                        value={enqEmail}
+                        onChange={(e) => setEnqEmail(e.target.value)}
+                        placeholder="rajesh@acme.in"
+                        className="w-full px-3 py-2 rounded-lg border border-border bg-background text-foreground text-sm focus:outline-none focus:ring-2 focus:ring-primary/50"
+                      />
+                    </div>
+                    <div>
+                      <label
+                        htmlFor="enq-phone"
+                        className="block text-sm font-medium text-foreground mb-1"
+                      >
+                        Phone Number <span className="text-destructive">*</span>
+                      </label>
+                      <input
+                        id="enq-phone"
+                        type="tel"
+                        data-ocid="enquiry.phone.input"
+                        required
+                        value={enqPhone}
+                        onChange={(e) => setEnqPhone(e.target.value)}
+                        placeholder="+91 98765 43210"
+                        className="w-full px-3 py-2 rounded-lg border border-border bg-background text-foreground text-sm focus:outline-none focus:ring-2 focus:ring-primary/50"
+                      />
+                    </div>
+                  </div>
+
+                  {/* Modules */}
+                  <div>
+                    <p className="text-sm font-medium text-foreground mb-2">
+                      Modules Interested In
+                    </p>
+                    <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
+                      {ENQUIRY_MODULES.map((mod) => (
+                        <button
+                          key={mod}
+                          type="button"
+                          onClick={() => toggleEnqModule(mod)}
+                          className={`text-xs px-2 py-1.5 rounded-lg border transition-colors text-center ${
+                            enqModules.includes(mod)
+                              ? "border-primary bg-primary/10 text-primary font-medium"
+                              : "border-border text-muted-foreground hover:bg-muted"
+                          }`}
+                        >
+                          {mod}
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+
+                  {/* Message */}
+                  <div>
+                    <label
+                      htmlFor="enq-message"
+                      className="block text-sm font-medium text-foreground mb-1"
+                    >
+                      Message / Requirements
+                    </label>
+                    <textarea
+                      id="enq-message"
+                      data-ocid="enquiry.message.textarea"
+                      value={enqMessage}
+                      onChange={(e) => setEnqMessage(e.target.value)}
+                      placeholder="Tell us about your business needs, number of users, or any specific requirements…"
+                      rows={3}
+                      className="w-full px-3 py-2 rounded-lg border border-border bg-background text-foreground text-sm focus:outline-none focus:ring-2 focus:ring-primary/50 resize-none"
+                    />
+                  </div>
+
+                  <button
+                    type="submit"
+                    data-ocid="enquiry.submit_button"
+                    className="w-full py-3 rounded-xl text-sm font-semibold transition-opacity hover:opacity-90"
+                    style={{
+                      background:
+                        "linear-gradient(135deg, oklch(0.65 0.18 65), oklch(0.58 0.16 50))",
+                      color: "oklch(0.1 0.04 55)",
+                      boxShadow: "0 4px 16px oklch(0.65 0.18 65 / 0.3)",
+                    }}
+                  >
+                    Send Enquiry →
+                  </button>
+                </form>
+              )}
             </motion.div>
           </motion.div>
         </div>

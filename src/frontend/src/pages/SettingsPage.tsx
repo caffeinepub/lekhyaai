@@ -830,13 +830,11 @@ export default function SettingsPage() {
           </div>
           <div className="flex-1">
             <div className="flex items-center gap-2 flex-wrap">
-              <h3 className="font-semibold text-foreground">
-                AI Engine — Meta Llama (via Groq)
-              </h3>
+              <h3 className="font-semibold text-foreground">LekhyaAI Engine</h3>
               {llamaCfg.apiKey ? (
                 <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[11px] font-medium bg-green-500/10 text-green-600 border border-green-500/20">
                   <CheckCircle className="w-3 h-3" />
-                  API key saved
+                  AI connected
                 </span>
               ) : (
                 <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[11px] font-medium bg-amber-500/10 text-amber-600 border border-amber-500/20">
@@ -846,47 +844,39 @@ export default function SettingsPage() {
               )}
             </div>
             <p className="text-xs text-muted-foreground">
-              Power the AI Accountant with Meta Llama 3 — free, fast, no credit
-              card needed
+              Power the AI Accountant — intelligent, fast, India-first
             </p>
           </div>
         </div>
 
-        {/* Groq info banner */}
+        {/* Info banner */}
         <div className="rounded-lg border border-primary/20 bg-primary/5 p-3 mb-4 text-xs text-muted-foreground">
           <p className="font-medium text-foreground mb-0.5">
-            How to get a free Groq API key:
+            LekhyaAI Engine Setup
           </p>
           <ol className="list-decimal list-inside space-y-0.5">
             <li>
-              Go to{" "}
-              <a
-                href="https://console.groq.com"
-                target="_blank"
-                rel="noopener noreferrer"
-                className="text-primary underline font-medium"
-              >
-                console.groq.com
-              </a>
+              Obtain your AI API key from the SuperUser settings or your system
+              administrator
             </li>
-            <li>Sign up for free (no credit card)</li>
-            <li>Create an API key and paste it below</li>
+            <li>Paste the API key below and click Save</li>
+            <li>Click "Test Connection" to verify it's working</li>
           </ol>
           <p className="mt-1.5 text-muted-foreground">
-            Free tier: 30 requests/min, 14,400/day — plenty for daily accounting
-            use.
+            Once connected, the AI Accountant, floating assistant, and invoice
+            scanner are all active.
           </p>
         </div>
 
         <div className="space-y-4">
           {/* API Key */}
           <div className="space-y-1.5">
-            <Label>Groq API Key</Label>
+            <Label>AI API Key</Label>
             <div className="relative">
               <Input
                 data-ocid="settings.llama_api_key.input"
                 type={showApiKey ? "text" : "password"}
-                placeholder="gsk_xxxxxxxxxxxxxxxxxxxxxxxx"
+                placeholder="Paste your AI API key here"
                 value={llamaCfg.apiKey}
                 onChange={(e) =>
                   setLlamaCfg((p) => ({ ...p, apiKey: e.target.value }))
@@ -909,7 +899,7 @@ export default function SettingsPage() {
 
           {/* Model */}
           <div className="space-y-1.5">
-            <Label>Llama Model</Label>
+            <Label>AI Model</Label>
             <Select
               value={llamaCfg.model}
               onValueChange={(v) => setLlamaCfg((p) => ({ ...p, model: v }))}
@@ -926,7 +916,8 @@ export default function SettingsPage() {
               </SelectContent>
             </Select>
             <p className="text-xs text-muted-foreground">
-              Llama 3 8B is fastest. Llama 3 70B gives best quality responses.
+              Standard gives best quality. Fast mode is lighter for quick
+              queries.
             </p>
           </div>
 
@@ -988,13 +979,13 @@ export default function SettingsPage() {
           {connStatus === "ok" && (
             <div className="flex items-center gap-2 p-3 bg-success/10 border border-success/20 rounded-lg text-xs text-success">
               <CheckCircle className="w-4 h-4 flex-shrink-0" />
-              Connected to Meta Llama via Groq successfully!
+              LekhyaAI Engine connected successfully!
             </div>
           )}
           {connStatus === "error" && (
             <div className="flex items-center gap-2 p-3 bg-destructive/10 border border-destructive/20 rounded-lg text-xs text-destructive">
               <XCircle className="w-4 h-4 flex-shrink-0" />
-              Connection failed. Get your free key at console.groq.com
+              Connection failed. Please check your API key and try again.
             </div>
           )}
         </div>
@@ -1014,7 +1005,7 @@ export default function SettingsPage() {
           <div className="flex-1">
             <div className="flex items-center gap-2 flex-wrap">
               <h3 className="font-semibold text-foreground">
-                Invoice OCR — Llama Vision
+                Invoice OCR — AI Vision Scanner
               </h3>
               {llamaCfg.apiKey ? (
                 <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[11px] font-medium bg-green-500/10 text-green-600 border border-green-500/20">
@@ -1024,13 +1015,13 @@ export default function SettingsPage() {
               ) : (
                 <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[11px] font-medium bg-amber-500/10 text-amber-600 border border-amber-500/20">
                   <AlertTriangle className="w-3 h-3" />
-                  Groq API key required
+                  AI API key required
                 </span>
               )}
             </div>
             <p className="text-xs text-muted-foreground mt-0.5">
-              Llama Vision reads your invoice image directly — no Google, no
-              third-party OCR. Pure Groq Llama.
+              AI Vision reads your invoice image directly and extracts all
+              fields — no manual typing required.
             </p>
           </div>
         </div>
@@ -1044,17 +1035,15 @@ export default function SettingsPage() {
                 How invoice scanning works
               </p>
               <p className="text-muted-foreground">
-                Upload a photo or PDF of any Indian GST invoice. Llama's vision
-                model reads the image directly — it sees the invoice exactly as
-                you do — and extracts all fields (invoice number, GSTINs, line
-                items with HSN codes, GST split, bank details) into a structured
-                form for your review. No Google, no Tesseract, no external OCR
-                service.
+                Upload a photo or PDF of any Indian GST invoice. The AI Vision
+                engine reads the image directly and extracts all fields —
+                invoice number, GSTINs, line items with HSN codes, GST split,
+                bank details — into a structured form for your review.
               </p>
               <p className="text-muted-foreground mt-1.5">
-                Your <strong className="text-foreground">Groq API key</strong>{" "}
-                (saved in AI Engine above) is all you need. The same key powers
-                the AI Assistant and invoice scanning.
+                Your <strong className="text-foreground">AI API key</strong>{" "}
+                (saved in LekhyaAI Engine above) is all you need. The same key
+                powers both the AI Assistant and invoice scanning.
               </p>
             </div>
           </div>
@@ -1063,7 +1052,7 @@ export default function SettingsPage() {
         <div className="space-y-4">
           {/* Vision Model Selector */}
           <div className="space-y-1.5">
-            <Label>Llama Vision Model for Invoice Scanning</Label>
+            <Label>AI Vision Model for Invoice Scanning</Label>
             <Select value={visionModel} onValueChange={setVisionModel}>
               <SelectTrigger data-ocid="settings.vision_model.select">
                 <SelectValue />
@@ -1077,8 +1066,8 @@ export default function SettingsPage() {
               </SelectContent>
             </Select>
             <p className="text-xs text-muted-foreground">
-              Llama 4 Scout gives the best accuracy for dense invoice documents.
-              Use 3.2 11B if you hit rate limits.
+              High Accuracy mode gives the best results for dense invoice
+              documents. Use Standard mode if you need faster processing.
             </p>
           </div>
 
@@ -1086,21 +1075,21 @@ export default function SettingsPage() {
           {visionStatus === "ok" && (
             <div className="flex items-center gap-2 p-3 bg-green-500/10 border border-green-500/20 rounded-lg text-xs text-green-600">
               <CheckCircle className="w-4 h-4 flex-shrink-0" />
-              Llama Vision is connected and ready to scan invoices!
+              AI Vision is connected and ready to scan invoices!
             </div>
           )}
           {visionStatus === "error" && (
             <div className="flex items-center gap-2 p-3 bg-destructive/10 border border-destructive/20 rounded-lg text-xs text-destructive">
               <XCircle className="w-4 h-4 flex-shrink-0" />
-              Test failed. Check your Groq API key in AI Engine above.
+              Test failed. Check your AI API key in LekhyaAI Engine above.
             </div>
           )}
 
           {!llamaCfg.apiKey && (
             <div className="flex items-center gap-2 p-3 bg-amber-500/10 border border-amber-500/20 rounded-lg text-xs text-amber-700">
               <AlertTriangle className="w-4 h-4 flex-shrink-0" />
-              Add your Groq API key in the AI Engine section above, then come
-              back here to save the vision model.
+              Add your AI API key in the LekhyaAI Engine section above, then
+              come back here to save the vision model.
             </div>
           )}
 

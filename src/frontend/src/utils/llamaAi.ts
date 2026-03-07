@@ -20,23 +20,26 @@ export interface LlamaConfig {
 }
 
 export const LLAMA_MODELS = [
-  { id: "llama3-8b-8192", label: "Llama 3 8B (Fast & Free)" },
-  { id: "llama3-70b-8192", label: "Llama 3 70B (Powerful)" },
-  { id: "llama-3.1-8b-instant", label: "Llama 3.1 8B Instant" },
-  { id: "llama-3.1-70b-versatile", label: "Llama 3.1 70B Versatile" },
-  { id: "llama-3.3-70b-versatile", label: "Llama 3.3 70B (Latest)" },
+  { id: "llama3-8b-8192", label: "LekhyaAI Standard (Fast)" },
+  { id: "llama3-70b-8192", label: "LekhyaAI Pro (Powerful)" },
+  { id: "llama-3.1-8b-instant", label: "LekhyaAI Instant" },
+  { id: "llama-3.1-70b-versatile", label: "LekhyaAI Pro Versatile" },
+  { id: "llama-3.3-70b-versatile", label: "LekhyaAI Pro 2.0 (Latest)" },
 ];
 
-// Vision-capable models available on Groq
+// Vision-capable models available
 export const LLAMA_VISION_MODELS = [
   {
     id: "meta-llama/llama-4-scout-17b-16e-instruct",
-    label: "Llama 4 Scout 17B (Best for OCR)",
+    label: "LekhyaAI Vision Pro (Best Accuracy)",
   },
-  { id: "llama-3.2-11b-vision-preview", label: "Llama 3.2 11B Vision (Fast)" },
+  {
+    id: "llama-3.2-11b-vision-preview",
+    label: "LekhyaAI Vision Standard (Fast)",
+  },
   {
     id: "llama-3.2-90b-vision-preview",
-    label: "Llama 3.2 90B Vision (Powerful)",
+    label: "LekhyaAI Vision Ultra (Maximum Power)",
   },
 ];
 

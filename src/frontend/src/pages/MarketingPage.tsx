@@ -894,6 +894,28 @@ export default function MarketingPage() {
                 </svg>
               </a>
 
+              <a
+                href="/app/demo"
+                data-ocid="marketing.hero.try_demo_button"
+                className="inline-flex items-center justify-center gap-2 px-8 py-4 rounded-2xl text-base font-semibold border border-white/30 text-white/90 hover:bg-white/10 transition-colors"
+              >
+                <svg
+                  width="18"
+                  height="18"
+                  viewBox="0 0 18 18"
+                  fill="none"
+                  aria-hidden="true"
+                >
+                  <path
+                    d="M9 2v14M2 9h14"
+                    stroke="currentColor"
+                    strokeWidth="2"
+                    strokeLinecap="round"
+                  />
+                </svg>
+                Try Free Demo
+              </a>
+
               <button
                 type="button"
                 data-ocid="marketing.hero.features_button"
@@ -1633,6 +1655,13 @@ export default function MarketingPage() {
                 }}
               >
                 Access App — Free Trial
+              </a>
+              <a
+                href="/app/demo"
+                data-ocid="marketing.cta.try_demo_button"
+                className="inline-flex items-center justify-center gap-2 px-8 py-4 rounded-2xl text-base font-semibold border border-white/30 text-white/90 hover:bg-white/10 transition-colors"
+              >
+                Try 12-Hour Free Demo
               </a>
             </motion.div>
           </motion.div>

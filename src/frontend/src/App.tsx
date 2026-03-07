@@ -49,6 +49,7 @@ const SuperuserSettingsPage = lazy(
 const OnboardingPortalPage = lazy(() => import("./pages/OnboardingPortalPage"));
 const QuotationPage = lazy(() => import("./pages/QuotationPage"));
 const PaymentCheckoutPage = lazy(() => import("./pages/PaymentCheckoutPage"));
+const DemoPage = lazy(() => import("./pages/DemoPage"));
 
 function PageLoader() {
   return (
@@ -311,6 +312,16 @@ const paymentCheckoutRoute = createRoute({
   ),
 });
 
+const demoRoute = createRoute({
+  getParentRoute: () => layoutRoute,
+  path: "/app/demo",
+  component: () => (
+    <Suspense fallback={<PageLoader />}>
+      <DemoPage />
+    </Suspense>
+  ),
+});
+
 const routeTree = rootRoute.addChildren([
   layoutRoute.addChildren([
     dashboardRoute,
@@ -338,6 +349,7 @@ const routeTree = rootRoute.addChildren([
     onboardingPortalRoute,
     quotationRoute,
     paymentCheckoutRoute,
+    demoRoute,
   ]),
 ]);
 
@@ -408,6 +420,11 @@ function isMarketingPath(): boolean {
   );
 }
 
+function isDemoPath(): boolean {
+  if (typeof window === "undefined") return false;
+  return window.location.pathname === "/app/demo";
+}
+
 function isAppPath(): boolean {
   if (typeof window === "undefined") return false;
   const path = window.location.pathname;
@@ -426,6 +443,23 @@ export default function App() {
         <MarketingLayout>
           <MarketingPage />
         </MarketingLayout>
+      </ThemeProvider>
+    );
+  }
+
+  // Demo page at /app/demo — no auth required, standalone
+  if (isDemoPath()) {
+    return (
+      <ThemeProvider>
+        <Suspense
+          fallback={
+            <div className="min-h-screen flex items-center justify-center">
+              <div className="w-8 h-8 rounded-full border-2 border-primary border-t-transparent animate-spin" />
+            </div>
+          }
+        >
+          <DemoPage />
+        </Suspense>
       </ThemeProvider>
     );
   }

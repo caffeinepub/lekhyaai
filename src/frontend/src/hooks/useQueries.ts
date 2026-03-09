@@ -1,4 +1,5 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { useBusiness } from "../context/BusinessContext";
 import type {
   Customer,
   Expense,
@@ -6,9 +7,9 @@ import type {
   InvoiceStatus,
   Product,
   Vendor,
-} from "../backend.d";
-import { InvoiceStatus as InvoiceStatusEnum } from "../backend.d";
-import { useBusiness } from "../context/BusinessContext";
+} from "../types/backend-types";
+import { InvoiceStatus as InvoiceStatusEnum } from "../types/backend-types";
+import type { ExtendedActor } from "../types/extended-actor";
 import { useActor } from "./useActor";
 
 // ─── Local DashboardData type (computed from invoices + expenses) ──
@@ -40,9 +41,10 @@ export function useDashboard() {
     queryKey: ["dashboard", activeBusinessId?.toString()],
     queryFn: async () => {
       if (!actor || activeBusinessId === null) throw new Error("Not ready");
+      const ext = actor as unknown as ExtendedActor;
       const [allInvoices, allExpenses] = await Promise.all([
-        actor.getInvoices(activeBusinessId),
-        actor.getExpenses(activeBusinessId),
+        ext.getInvoices(activeBusinessId),
+        ext.getExpenses(activeBusinessId),
       ]);
 
       const now = Date.now();
@@ -110,7 +112,7 @@ export function useCustomers() {
     queryKey: ["customers", activeBusinessId?.toString()],
     queryFn: async () => {
       if (!actor || activeBusinessId === null) return [];
-      return actor.getCustomers(activeBusinessId);
+      return (actor as unknown as ExtendedActor).getCustomers(activeBusinessId);
     },
     enabled: !!actor && !isFetching && activeBusinessId !== null,
     staleTime: 30_000,
@@ -131,7 +133,7 @@ export function useCreateCustomer() {
       state?: string;
     }) => {
       if (!actor || activeBusinessId === null) throw new Error("Not ready");
-      const id = await actor.createCustomer(
+      const id = await (actor as unknown as ExtendedActor).createCustomer(
         activeBusinessId,
         data.name,
         data.gstin,
@@ -169,7 +171,7 @@ export function useUpdateCustomer() {
       state?: string;
     }) => {
       if (!actor) throw new Error("Not ready");
-      await actor.updateCustomer(
+      await (actor as unknown as ExtendedActor).updateCustomer(
         data.id,
         data.name,
         data.gstin,
@@ -198,7 +200,7 @@ export function useDeleteCustomer() {
   return useMutation({
     mutationFn: async (id: bigint) => {
       if (!actor) throw new Error("Not ready");
-      return actor.deleteCustomer(id);
+      return (actor as unknown as ExtendedActor).deleteCustomer(id);
     },
     onSuccess: () => {
       void qc.invalidateQueries({ queryKey: ["customers"] });
@@ -214,7 +216,7 @@ export function useVendors() {
     queryKey: ["vendors", activeBusinessId?.toString()],
     queryFn: async () => {
       if (!actor || activeBusinessId === null) return [];
-      return actor.getVendors(activeBusinessId);
+      return (actor as unknown as ExtendedActor).getVendors(activeBusinessId);
     },
     enabled: !!actor && !isFetching && activeBusinessId !== null,
     staleTime: 30_000,
@@ -234,7 +236,7 @@ export function useCreateVendor() {
       address: string;
     }) => {
       if (!actor || activeBusinessId === null) throw new Error("Not ready");
-      return actor.createVendor(
+      return (actor as unknown as ExtendedActor).createVendor(
         activeBusinessId,
         data.name,
         data.gstin,
@@ -262,7 +264,7 @@ export function useUpdateVendor() {
       address: string;
     }) => {
       if (!actor) throw new Error("Not ready");
-      return actor.updateVendor(
+      return (actor as unknown as ExtendedActor).updateVendor(
         data.id,
         data.name,
         data.gstin,
@@ -283,7 +285,7 @@ export function useDeleteVendor() {
   return useMutation({
     mutationFn: async (id: bigint) => {
       if (!actor) throw new Error("Not ready");
-      return actor.deleteVendor(id);
+      return (actor as unknown as ExtendedActor).deleteVendor(id);
     },
     onSuccess: () => {
       void qc.invalidateQueries({ queryKey: ["vendors"] });
@@ -299,7 +301,7 @@ export function useProducts() {
     queryKey: ["products", activeBusinessId?.toString()],
     queryFn: async () => {
       if (!actor || activeBusinessId === null) return [];
-      return actor.getProducts(activeBusinessId);
+      return (actor as unknown as ExtendedActor).getProducts(activeBusinessId);
     },
     enabled: !!actor && !isFetching && activeBusinessId !== null,
     staleTime: 30_000,
@@ -320,7 +322,7 @@ export function useCreateProduct() {
       stockQuantity: bigint;
     }) => {
       if (!actor || activeBusinessId === null) throw new Error("Not ready");
-      return actor.createProduct(
+      return (actor as unknown as ExtendedActor).createProduct(
         activeBusinessId,
         data.name,
         data.hsnCode,
@@ -350,7 +352,7 @@ export function useUpdateProduct() {
       stockQuantity: bigint;
     }) => {
       if (!actor) throw new Error("Not ready");
-      return actor.updateProduct(
+      return (actor as unknown as ExtendedActor).updateProduct(
         data.id,
         data.name,
         data.hsnCode,
@@ -372,7 +374,7 @@ export function useDeleteProduct() {
   return useMutation({
     mutationFn: async (id: bigint) => {
       if (!actor) throw new Error("Not ready");
-      return actor.deleteProduct(id);
+      return (actor as unknown as ExtendedActor).deleteProduct(id);
     },
     onSuccess: () => {
       void qc.invalidateQueries({ queryKey: ["products"] });
@@ -388,7 +390,7 @@ export function useInvoices() {
     queryKey: ["invoices", activeBusinessId?.toString()],
     queryFn: async () => {
       if (!actor || activeBusinessId === null) return [];
-      return actor.getInvoices(activeBusinessId);
+      return (actor as unknown as ExtendedActor).getInvoices(activeBusinessId);
     },
     enabled: !!actor && !isFetching && activeBusinessId !== null,
     staleTime: 30_000,
@@ -408,7 +410,7 @@ export function useCreateInvoice() {
       items: Array<[bigint, string, bigint, bigint, bigint]>;
     }) => {
       if (!actor || activeBusinessId === null) throw new Error("Not ready");
-      return actor.createInvoice(
+      return (actor as unknown as ExtendedActor).createInvoice(
         activeBusinessId,
         data.customerId,
         data.invoiceNumber,
@@ -430,7 +432,10 @@ export function useUpdateInvoiceStatus() {
   return useMutation({
     mutationFn: async (data: { id: bigint; status: InvoiceStatus }) => {
       if (!actor) throw new Error("Not ready");
-      return actor.updateInvoiceStatus(data.id, data.status);
+      return (actor as unknown as ExtendedActor).updateInvoiceStatus(
+        data.id,
+        data.status,
+      );
     },
     onSuccess: () => {
       void qc.invalidateQueries({ queryKey: ["invoices"] });
@@ -451,7 +456,7 @@ export function useAddPayment() {
       referenceNo: string;
     }) => {
       if (!actor) throw new Error("Not ready");
-      return actor.addPaymentToInvoice(
+      return (actor as unknown as ExtendedActor).addPaymentToInvoice(
         data.invoiceId,
         data.amount,
         data.paymentDate,
@@ -472,7 +477,7 @@ export function useDeleteInvoice() {
   return useMutation({
     mutationFn: async (id: bigint) => {
       if (!actor) throw new Error("Not ready");
-      return actor.deleteInvoice(id);
+      return (actor as unknown as ExtendedActor).deleteInvoice(id);
     },
     onSuccess: () => {
       void qc.invalidateQueries({ queryKey: ["invoices"] });
@@ -489,7 +494,7 @@ export function useExpenses() {
     queryKey: ["expenses", activeBusinessId?.toString()],
     queryFn: async () => {
       if (!actor || activeBusinessId === null) return [];
-      return actor.getExpenses(activeBusinessId);
+      return (actor as unknown as ExtendedActor).getExpenses(activeBusinessId);
     },
     enabled: !!actor && !isFetching && activeBusinessId !== null,
     staleTime: 30_000,
@@ -510,7 +515,7 @@ export function useCreateExpense() {
       description: string;
     }) => {
       if (!actor || activeBusinessId === null) throw new Error("Not ready");
-      return actor.createExpense(
+      return (actor as unknown as ExtendedActor).createExpense(
         activeBusinessId,
         data.vendorId,
         data.category,
@@ -540,7 +545,7 @@ export function useUpdateExpense() {
       description: string;
     }) => {
       if (!actor) throw new Error("Not ready");
-      return actor.updateExpense(
+      return (actor as unknown as ExtendedActor).updateExpense(
         data.id,
         data.category,
         data.amount,
@@ -561,7 +566,7 @@ export function useDeleteExpense() {
   return useMutation({
     mutationFn: async (id: bigint) => {
       if (!actor) throw new Error("Not ready");
-      return actor.deleteExpense(id);
+      return (actor as unknown as ExtendedActor).deleteExpense(id);
     },
     onSuccess: () => {
       void qc.invalidateQueries({ queryKey: ["expenses"] });
@@ -579,10 +584,11 @@ export function useSubscriptionStatus() {
     queryKey: ["subscription", activeBusinessId?.toString()],
     queryFn: async () => {
       if (!actor || activeBusinessId === null) throw new Error("Not ready");
+      const ext = actor as unknown as ExtendedActor;
       const [invoices, customers, products] = await Promise.all([
-        actor.getInvoices(activeBusinessId),
-        actor.getCustomers(activeBusinessId),
-        actor.getProducts(activeBusinessId),
+        ext.getInvoices(activeBusinessId),
+        ext.getCustomers(activeBusinessId),
+        ext.getProducts(activeBusinessId),
       ]);
       return {
         invoiceCount: BigInt(invoices.length),

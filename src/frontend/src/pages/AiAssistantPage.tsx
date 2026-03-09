@@ -21,6 +21,7 @@ import { toast } from "sonner";
 import { useBusiness } from "../context/BusinessContext";
 import { useActor } from "../hooks/useActor";
 import { useInternetIdentity } from "../hooks/useInternetIdentity";
+import type { ExtendedActor } from "../types/extended-actor";
 import {
   LS_KEY_API_KEY,
   type StoredMessage,
@@ -249,9 +250,10 @@ Always be professional but friendly. Format financial outputs as ₹ X,XX,XXX`;
     setIsLoading(true);
 
     try {
+      const ext = actor as unknown as ExtendedActor;
       const [allInvoices, allExpenses] = await Promise.all([
-        actor.getInvoices(activeBusinessId),
-        actor.getExpenses(activeBusinessId),
+        ext.getInvoices(activeBusinessId),
+        ext.getExpenses(activeBusinessId),
       ]);
 
       const now = Date.now();

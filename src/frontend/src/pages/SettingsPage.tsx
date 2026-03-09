@@ -25,6 +25,7 @@ import {
   Download,
   Eye,
   EyeOff,
+  HardDriveDownload,
   ImageIcon,
   Loader2,
   Palette,
@@ -46,6 +47,7 @@ import DeleteConfirmDialog from "../components/DeleteConfirmDialog";
 import { useBusiness } from "../context/BusinessContext";
 import { THEMES, useTheme } from "../context/ThemeContext";
 import { useActor } from "../hooks/useActor";
+import type { ExtendedActor } from "../types/extended-actor";
 import { exportAllDataAsJSON } from "../utils/backupUtils";
 import {
   COMPANY_CATEGORIES,
@@ -63,6 +65,137 @@ import {
   saveLlamaConfig,
   saveLlamaVisionModel,
 } from "../utils/llamaAi";
+
+// ─── Data Backup Card ──────────────────────────────────────────────────────
+function DataBackupCard() {
+  const LS_BACKUP_REQUESTS = "lekhya_backup_requests";
+
+  const [lastRequest, setLastRequest] = useState<{
+    id: string;
+    requestedBy: string;
+    requestedAt: string;
+    status: "pending" | "fulfilled";
+  } | null>(() => {
+    try {
+      const raw = localStorage.getItem(LS_BACKUP_REQUESTS);
+      const requests = JSON.parse(raw ?? "[]") as Array<{
+        id: string;
+        requestedBy: string;
+        requestedAt: string;
+        status: "pending" | "fulfilled";
+      }>;
+      return requests.length > 0 ? requests[requests.length - 1] : null;
+    } catch {
+      return null;
+    }
+  });
+  const [requesting, setRequesting] = useState(false);
+
+  function handleRequestBackup() {
+    setRequesting(true);
+    const req = {
+      id: `req-${Date.now()}`,
+      requestedBy: "Current User (Admin)",
+      requestedAt: new Date().toISOString(),
+      status: "pending" as const,
+    };
+    try {
+      const raw = localStorage.getItem(LS_BACKUP_REQUESTS);
+      const existing = JSON.parse(raw ?? "[]") as (typeof req)[];
+      existing.push(req);
+      localStorage.setItem(LS_BACKUP_REQUESTS, JSON.stringify(existing));
+      setLastRequest(req);
+      toast.success("Backup request sent to SuperUser");
+    } catch {
+      toast.error("Failed to send backup request");
+    } finally {
+      setRequesting(false);
+    }
+  }
+
+  return (
+    <motion.div
+      initial={{ opacity: 0, y: 12 }}
+      animate={{ opacity: 1, y: 0 }}
+      transition={{ delay: 0.55 }}
+      data-ocid="settings.data_backup.section"
+      className="bg-card rounded-xl shadow-card border border-border p-6 mb-6"
+    >
+      <div className="flex items-center gap-3 mb-5">
+        <div className="w-10 h-10 rounded-xl bg-primary/10 flex items-center justify-center">
+          <HardDriveDownload className="w-5 h-5 text-primary" />
+        </div>
+        <div>
+          <h3 className="font-semibold text-foreground">Data Backup</h3>
+          <p className="text-xs text-muted-foreground">
+            Request a full backup of your account data from your SuperUser
+          </p>
+        </div>
+      </div>
+
+      <div className="space-y-4">
+        <div className="rounded-lg border border-border bg-muted/30 p-3 text-xs text-muted-foreground">
+          Backup requests are sent to the system SuperUser who will process and
+          deliver your data export. This is the secure way to receive a full
+          data backup.
+        </div>
+
+        <Button
+          data-ocid="settings.request_backup.button"
+          variant="outline"
+          onClick={handleRequestBackup}
+          disabled={requesting || lastRequest?.status === "pending"}
+          className="gap-2"
+        >
+          {requesting ? (
+            <Loader2 className="w-4 h-4 animate-spin" />
+          ) : (
+            <Download className="w-4 h-4" />
+          )}
+          {requesting
+            ? "Sending request…"
+            : lastRequest?.status === "pending"
+              ? "Request Pending…"
+              : "Request Backup from SuperUser"}
+        </Button>
+
+        {lastRequest && (
+          <div
+            className={`flex items-start gap-3 p-3 rounded-lg text-xs border ${
+              lastRequest.status === "fulfilled"
+                ? "bg-success/10 border-success/20 text-success"
+                : "bg-amber-50 border-amber-200 dark:bg-amber-950/20 dark:border-amber-800 text-amber-800 dark:text-amber-200"
+            }`}
+            data-ocid="settings.backup_request_status.card"
+          >
+            {lastRequest.status === "fulfilled" ? (
+              <CheckCircle className="w-4 h-4 flex-shrink-0 mt-0.5" />
+            ) : (
+              <AlertTriangle className="w-4 h-4 flex-shrink-0 mt-0.5" />
+            )}
+            <div>
+              <p className="font-semibold">
+                {lastRequest.status === "fulfilled"
+                  ? "Backup request fulfilled"
+                  : "Backup request pending"}
+              </p>
+              <p className="mt-0.5">
+                Requested:{" "}
+                {new Date(lastRequest.requestedAt).toLocaleString("en-IN", {
+                  day: "2-digit",
+                  month: "short",
+                  year: "numeric",
+                  hour: "2-digit",
+                  minute: "2-digit",
+                })}
+              </p>
+            </div>
+          </div>
+        )}
+      </div>
+    </motion.div>
+  );
+}
 
 export default function SettingsPage() {
   const { actor } = useActor();
@@ -260,7 +393,7 @@ export default function SettingsPage() {
     if (!actor || !activeBusiness) return;
     setSaving(true);
     try {
-      await actor.updateBusiness(
+      await (actor as unknown as ExtendedActor).updateBusiness(
         activeBusiness.id,
         form.name,
         form.gstin,
@@ -280,7 +413,7 @@ export default function SettingsPage() {
   async function handleDeleteBusiness() {
     if (!deleteId || !actor) return;
     try {
-      await actor.deleteBusiness(deleteId);
+      await (actor as unknown as ExtendedActor).deleteBusiness(deleteId);
       toast.success("Business deleted.");
       setDeleteId(null);
       await qc.invalidateQueries({ queryKey: ["businesses"] });
@@ -1509,6 +1642,9 @@ export default function SettingsPage() {
           )}
         </div>
       </motion.div>
+
+      {/* ─── Data Backup ─── */}
+      <DataBackupCard />
 
       <CreateBusinessModal
         open={createBizOpen}

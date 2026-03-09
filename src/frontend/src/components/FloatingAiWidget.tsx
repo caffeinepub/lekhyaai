@@ -13,6 +13,7 @@ import { useEffect, useRef, useState } from "react";
 import { useBusiness } from "../context/BusinessContext";
 import { useActor } from "../hooks/useActor";
 import { useInternetIdentity } from "../hooks/useInternetIdentity";
+import type { ExtendedActor } from "../types/extended-actor";
 import {
   LS_KEY_API_KEY,
   type StoredMessage,
@@ -135,10 +136,11 @@ export default function FloatingAiWidget() {
 
     try {
       // actor may be null on non-authenticated pages; fall back to rule-based gracefully
-      const [allInvoices, allExpenses] = actor
+      const ext = actor as unknown as ExtendedActor | null;
+      const [allInvoices, allExpenses] = ext
         ? await Promise.all([
-            actor.getInvoices(activeBusinessId),
-            actor.getExpenses(activeBusinessId),
+            ext.getInvoices(activeBusinessId),
+            ext.getExpenses(activeBusinessId),
           ])
         : [[], []];
 

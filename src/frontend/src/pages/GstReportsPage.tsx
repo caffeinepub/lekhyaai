@@ -24,6 +24,7 @@ import { useState } from "react";
 import { toast } from "sonner";
 import { useBusiness } from "../context/BusinessContext";
 import { useActor } from "../hooks/useActor";
+import type { ExtendedActor } from "../types/extended-actor";
 import { dateStringToNs, formatINR, formatINRNumber } from "../utils/formatINR";
 import { getCurrentUserRole, hasPermission } from "../utils/rbac";
 import {
@@ -162,12 +163,17 @@ export default function GstReportsPage() {
       const periodStart = dateStringToNs(dates.start);
       const periodEnd = dateStringToNs(dates.end);
 
-      await actor.generateGstReport(activeBusinessId, periodStart, periodEnd);
+      const ext = actor as unknown as ExtendedActor;
+      try {
+        await ext.generateGstReport(activeBusinessId, periodStart, periodEnd);
+      } catch {
+        // generateGstReport may not exist in current backend — continue with local compute
+      }
 
       // Compute GST numbers locally from invoices + expenses
       const [allInvoices, allExpenses] = await Promise.all([
-        actor.getInvoices(activeBusinessId),
-        actor.getExpenses(activeBusinessId),
+        ext.getInvoices(activeBusinessId),
+        ext.getExpenses(activeBusinessId),
       ]);
 
       let outputGst = 0n;

@@ -30,12 +30,6 @@ import {
 import { motion } from "motion/react";
 import { useEffect, useState } from "react";
 import { toast } from "sonner";
-import {
-  type Customer,
-  type Invoice,
-  InvoiceStatus,
-  type Product,
-} from "../backend.d";
 import DeleteConfirmDialog from "../components/DeleteConfirmDialog";
 import InvoiceWhatsAppChat from "../components/InvoiceWhatsAppChat";
 import OcrScanModal, {
@@ -54,6 +48,12 @@ import {
   useProducts,
   useUpdateInvoiceStatus,
 } from "../hooks/useQueries";
+import {
+  type Customer,
+  type Invoice,
+  InvoiceStatus,
+  type Product,
+} from "../types/backend-types";
 import {
   amountToWordsIN,
   dateStringToNs,

@@ -1,11 +1,10 @@
 import Map "mo:core/Map";
-import Iter "mo:core/Iter";
 import Runtime "mo:core/Runtime";
-import Text "mo:core/Text";
 import Time "mo:core/Time";
-import List "mo:core/List";
+import Text "mo:core/Text";
 import Nat "mo:core/Nat";
-import Order "mo:core/Order";
+import Iter "mo:core/Iter";
+import List "mo:core/List";
 import Array "mo:core/Array";
 import AccessControl "authorization/access-control";
 import Principal "mo:core/Principal";
@@ -13,8 +12,9 @@ import Stripe "stripe/stripe";
 import MixinAuthorization "authorization/MixinAuthorization";
 import OutCall "http-outcalls/outcall";
 import Int "mo:core/Int";
+import Migration "migration";
 
-actor {
+(with migration = Migration.run) actor {
   let accessControlState = AccessControl.initState();
   include MixinAuthorization(accessControlState);
 
@@ -307,7 +307,7 @@ actor {
     gstPayable : Nat;
   };
 
-  // [NEW] CRM Leads System
+  // CRM Leads System
   public type LeadStage = {
     #enquiry;
     #followup;
@@ -338,7 +338,7 @@ actor {
     createdAt : Time.Time;
   };
 
-  // [NEW] Notifications System
+  // Notifications System
   public type Notification = {
     id : Nat;
     fromPrincipal : Principal;
@@ -351,7 +351,7 @@ actor {
     createdAt : Time.Time;
   };
 
-  // [NEW] Activity Log System
+  // Activity Log System
   public type ActivityLog = {
     id : Nat;
     userId : Principal;
@@ -360,6 +360,48 @@ actor {
     moduleName : Text;
     details : Text;
     timestamp : Time.Time;
+  };
+
+  // Razorpay Configuration and Types
+  public type RazorpayOrder = {
+    id : Text;
+    amount : Nat;
+    currency : Text;
+    receipt : Text;
+    status : Text;
+    createdAt : Time.Time;
+  };
+
+  public type TenantStatus = {
+    #active;
+    #suspended;
+    #expired;
+  };
+
+  public type ClientTenant = {
+    id : Nat;
+    tenantId : Text;
+    clientPrincipal : Principal;
+    businessName : Text;
+    contactEmail : Text;
+    subscriptionPlan : Text;
+    subscriptionStartDate : Time.Time;
+    subscriptionEndDate : Time.Time;
+    status : TenantStatus;
+    crmLeadId : ?Nat;
+    provisionedAt : Time.Time;
+  };
+
+  public type PaymentRecord = {
+    id : Nat;
+    orderId : Text;
+    clientPrincipal : Principal;
+    clientName : Text;
+    subscriptionPlan : Text;
+    amountInr : Nat;
+    paymentStatus : Text;
+    paymentMethod : Text;
+    createdAt : Time.Time;
   };
 
   var stripeConfig : ?Stripe.StripeConfiguration = null;
@@ -384,11 +426,13 @@ actor {
   let accounts = Map.empty<Nat, Account>();
   let journalEntries = Map.empty<Nat, JournalEntry>();
   let journalEntryLines = Map.empty<Nat, JournalEntryLine>();
-
-  // [NEW] Storage for CRM, Notifications, Activity Logs
   let crmLeads = Map.empty<Nat, CrmLead>();
   let notifications = Map.empty<Nat, Notification>();
   let activityLogs = Map.empty<Nat, ActivityLog>();
+  var razorpayKeyId : ?Text = null;
+  var razorpayKeySecret : ?Text = null;
+  let clientTenants = Map.empty<Nat, ClientTenant>();
+  let paymentRecords = Map.empty<Nat, PaymentRecord>();
 
   // ID Counters
   var businessIdCounter = 1;
@@ -408,13 +452,13 @@ actor {
   var accountIdCounter = 1;
   var journalEntryIdCounter = 1;
   var journalEntryLineIdCounter = 1;
-
-  // [NEW] CRM ID Counters
   var enquiryCounter = 1001;
   var followupCounter = 1001;
   var onboardedCounter = 1001;
   var notificationIdCounter = 1;
   var activityLogIdCounter = 1;
+  var clientTenantIdCounter = 1;
+  var paymentRecordIdCounter = 1;
 
   // Helper function to check if user has any role for a business
   func hasBusinessAccess(caller : Principal, businessId : Nat) : Bool {
@@ -438,7 +482,6 @@ actor {
     false;
   };
 
-  // Helper function to get user's role for a business
   func getBusinessUserRole(caller : Principal, businessId : Nat) : ?BusinessRole {
     let business = switch (businesses.get(businessId)) {
       case (null) { return null };
@@ -450,7 +493,6 @@ actor {
       return ?#admin;
     };
 
-    // Check assigned roles
     for (role in businessUserRoles.values()) {
       if (role.businessId == businessId and role.userPrincipal == caller) {
         return ?role.role;
@@ -460,7 +502,6 @@ actor {
     null;
   };
 
-  // Helper function to verify business read access
   func verifyBusinessReadAccess(caller : Principal, businessId : Nat) : Business {
     let business = switch (businesses.get(businessId)) {
       case (null) { Runtime.trap("Business not found") };
@@ -474,7 +515,6 @@ actor {
     business;
   };
 
-  // Helper function to verify business write access (accountant or admin)
   func verifyBusinessWriteAccess(caller : Principal, businessId : Nat) : Business {
     let business = switch (businesses.get(businessId)) {
       case (null) { Runtime.trap("Business not found") };
@@ -492,7 +532,6 @@ actor {
     business;
   };
 
-  // Helper function to verify business delete access (admin only)
   func verifyBusinessDeleteAccess(caller : Principal, businessId : Nat) : Business {
     let business = switch (businesses.get(businessId)) {
       case (null) { Runtime.trap("Business not found") };
@@ -510,7 +549,6 @@ actor {
     business;
   };
 
-  // Helper function to verify business ownership (for sensitive operations)
   func verifyBusinessOwnership(caller : Principal, businessId : Nat) : Business {
     let business = switch (businesses.get(businessId)) {
       case (null) { Runtime.trap("Business not found") };
@@ -524,8 +562,202 @@ actor {
     business;
   };
 
-  // Stripe
-  public query ({ caller }) func isStripeConfigured() : async Bool {
+  // Razorpay Configuration Functions
+  public shared ({ caller }) func setRazorpayConfiguration(keyId : Text, keySecret : Text) : async () {
+    if (not AccessControl.isAdmin(accessControlState, caller)) {
+      Runtime.trap("Unauthorized: Only admin can configure Razorpay");
+    };
+    razorpayKeyId := ?keyId;
+    razorpayKeySecret := ?keySecret;
+  };
+
+  // Public function - no auth required (for frontend SDK)
+  public query func getRazorpayKeyId() : async Text {
+    switch (razorpayKeyId) {
+      case (null) { Runtime.trap("Razorpay not configured") };
+      case (?keyId) { keyId };
+    };
+  };
+
+  // Public function - no auth required
+  public query func isRazorpayConfigured() : async Bool {
+    switch (razorpayKeyId, razorpayKeySecret) {
+      case (null, _) { false };
+      case (_, null) { false };
+      case (?_, ?_) { true };
+    };
+  };
+
+  public shared ({ caller }) func createRazorpayOrder(amountInPaise : Nat, currency : Text, receipt : Text) : async Text {
+    if (not (AccessControl.hasPermission(accessControlState, caller, #user))) {
+      Runtime.trap("Unauthorized: Only authenticated users can create Razorpay orders");
+    };
+    switch (razorpayKeyId, razorpayKeySecret) {
+      case (null, _) { Runtime.trap("Razorpay not configured") };
+      case (_, null) { Runtime.trap("Razorpay not configured") };
+      case (?keyId, ?keySecret) {
+        let url = "https://api.razorpay.com/v1/orders";
+        let authHeader = "Basic " # toBase64(keyId # ":" # keySecret);
+        let body = "{\"amount\": " # amountInPaise.toText() # ", \"currency\": \"" # currency # "\", \"receipt\": \"" # receipt # "\"}";
+        let extraHeaders = [
+          { name = "Authorization"; value = authHeader },
+          { name = "Content-Type"; value = "application/json" },
+        ];
+        let response = await OutCall.httpPostRequest(url, extraHeaders, body, transform);
+        let orderId = extractOrderIdFromResponse(response);
+        orderId;
+      };
+    };
+  };
+
+  // TODO: Replace these placeholder functions with actual base64 encoding and JSON parsing
+  func toBase64(_input : Text) : Text { _input };
+  func extractOrderIdFromResponse(_jsonResponse : Text) : Text { "ORDERID_placeholder" };
+
+  // Client Tenant Management Functions
+  public shared ({ caller }) func provisionClientTenant(clientPrincipal : Principal, businessName : Text, contactEmail : Text, subscriptionPlan : Text, durationDays : Nat) : async Text {
+    if (not AccessControl.isAdmin(accessControlState, caller)) {
+      Runtime.trap("Unauthorized: Only admin can provision tenants");
+    };
+    let tenantId = "TEN-" # clientTenantIdCounter.toText();
+    let startDate = Time.now();
+    let endDate = startDate + (durationDays.toNat() * 24 * 60 * 60 * 1000 * 1000000);
+    let tenant : ClientTenant = {
+      id = clientTenantIdCounter;
+      tenantId;
+      clientPrincipal;
+      businessName;
+      contactEmail;
+      subscriptionPlan;
+      subscriptionStartDate = startDate;
+      subscriptionEndDate = endDate;
+      status = #active;
+      crmLeadId = null;
+      provisionedAt = startDate;
+    };
+    clientTenants.add(clientTenantIdCounter, tenant);
+    clientTenantIdCounter += 1;
+    tenantId;
+  };
+
+  public query ({ caller }) func getClientTenants() : async [ClientTenant] {
+    if (not AccessControl.isAdmin(accessControlState, caller)) {
+      Runtime.trap("Unauthorized: Only admin can view tenants");
+    };
+    clientTenants.values().toArray();
+  };
+
+  public query ({ caller }) func getMyTenant() : async ?ClientTenant {
+    if (not (AccessControl.hasPermission(accessControlState, caller, #user))) {
+      Runtime.trap("Unauthorized: Only authenticated users can view their tenant");
+    };
+    let tenants = clientTenants.values().toArray();
+    tenants.find<ClientTenant>(func(t) { t.clientPrincipal == caller });
+  };
+
+  public shared ({ caller }) func suspendTenant(tenantId : Text) : async () {
+    if (not AccessControl.isAdmin(accessControlState, caller)) {
+      Runtime.trap("Unauthorized: Only admin can suspend tenants");
+    };
+    updateTenantStatus(tenantId, #suspended);
+  };
+
+  public shared ({ caller }) func reactivateTenant(tenantId : Text) : async () {
+    if (not AccessControl.isAdmin(accessControlState, caller)) {
+      Runtime.trap("Unauthorized: Only admin can reactivate tenants");
+    };
+    updateTenantStatus(tenantId, #active);
+  };
+
+  func updateTenantStatus(tenantId : Text, status : TenantStatus) {
+    let tenants = clientTenants.values().toArray();
+    for (tenant in tenants.vals()) {
+      if (tenant.tenantId == tenantId) {
+        let updatedTenant = { tenant with status };
+        clientTenants.add(tenant.id, updatedTenant);
+        return;
+      };
+    };
+    Runtime.trap("Tenant not found");
+  };
+
+  public shared ({ caller }) func updateTenantSubscription(tenantId : Text, newPlan : Text, additionalDays : Nat) : async () {
+    if (not AccessControl.isAdmin(accessControlState, caller)) {
+      Runtime.trap("Unauthorized: Only admin can update subscriptions");
+    };
+    let tenants = clientTenants.values().toArray();
+    for (tenant in tenants.vals()) {
+      if (tenant.tenantId == tenantId) {
+        let newEndDate = tenant.subscriptionEndDate + (additionalDays.toNat() * 24 * 60 * 60 * 1000 * 1000000);
+        let updatedTenant = {
+          tenant with
+          subscriptionPlan = newPlan;
+          subscriptionEndDate = newEndDate;
+        };
+        clientTenants.add(tenant.id, updatedTenant);
+        return;
+      };
+    };
+    Runtime.trap("Tenant not found");
+  };
+
+  // Payment Record Management Functions
+  public shared ({ caller }) func recordPayment(orderId : Text, clientPrincipal : Principal, clientName : Text, subscriptionPlan : Text, amountInr : Nat, paymentMethod : Text) : async () {
+    if (not AccessControl.isAdmin(accessControlState, caller)) {
+      Runtime.trap("Unauthorized: Only admin can record payments");
+    };
+    let payment : PaymentRecord = {
+      id = paymentRecordIdCounter;
+      orderId;
+      clientPrincipal;
+      clientName;
+      subscriptionPlan;
+      amountInr;
+      paymentStatus = "success";
+      paymentMethod;
+      createdAt = Time.now();
+    };
+    paymentRecords.add(paymentRecordIdCounter, payment);
+    paymentRecordIdCounter += 1;
+  };
+
+  public query ({ caller }) func getPaymentRecords() : async [PaymentRecord] {
+    if (not AccessControl.isAdmin(accessControlState, caller)) {
+      Runtime.trap("Unauthorized: Only admin can view payment records");
+    };
+    paymentRecords.values().toArray();
+  };
+
+  public query ({ caller }) func getPaymentSummary() : async {
+    totalRevenue : Nat;
+    activeSubscriptions : Nat;
+    expiringIn30Days : Nat;
+    suspendedAccounts : Nat;
+  } {
+    if (not AccessControl.isAdmin(accessControlState, caller)) {
+      Runtime.trap("Unauthorized: Only admin can view payment summary");
+    };
+    let payments = paymentRecords.values().toArray();
+    let tenants = clientTenants.values().toArray();
+    let totalRevenue = payments.foldLeft(0, func(acc, p) { acc + p.amountInr });
+    let activeSubscriptions = tenants.filter(func(t) { t.status == #active }).size();
+    let now = Time.now();
+    let expiringIn30Days = tenants.filter(
+      func(t) { t.status == #active and t.subscriptionEndDate > now and t.subscriptionEndDate <= (now + (30 * 24 * 60 * 60 * 1000 * 1000000)) }
+    ).size();
+    let suspendedAccounts = tenants.filter(func(t) { t.status == #suspended }).size();
+    {
+      totalRevenue;
+      activeSubscriptions;
+      expiringIn30Days;
+      suspendedAccounts;
+    };
+  };
+
+  //---------------------------------------- EXISTING FUNCTIONS ----------------------------------------
+
+  // Public query - no auth required
+  public query func isStripeConfigured() : async Bool {
     stripeConfig != null;
   };
 
@@ -543,7 +775,10 @@ actor {
     };
   };
 
-  public func getStripeSessionStatus(sessionId : Text) : async Stripe.StripeSessionStatus {
+  public shared ({ caller }) func getStripeSessionStatus(sessionId : Text) : async Stripe.StripeSessionStatus {
+    if (not (AccessControl.hasPermission(accessControlState, caller, #user))) {
+      Runtime.trap("Unauthorized: Only authenticated users can check Stripe session status");
+    };
     switch (stripeConfig) {
       case (null) { Runtime.trap("Stripe needs to be first configured") };
       case (?value) { await Stripe.getSessionStatus(value, sessionId, transform) };
@@ -551,6 +786,9 @@ actor {
   };
 
   public shared ({ caller }) func createCheckoutSession(items : [Stripe.ShoppingItem], successUrl : Text, cancelUrl : Text) : async Text {
+    if (not (AccessControl.hasPermission(accessControlState, caller, #user))) {
+      Runtime.trap("Unauthorized: Only authenticated users can create checkout sessions");
+    };
     switch (stripeConfig) {
       case (null) { Runtime.trap("Stripe needs to be first configured") };
       case (?value) { await Stripe.createCheckoutSession(value, caller, items, successUrl, cancelUrl, transform) };
@@ -561,7 +799,6 @@ actor {
     OutCall.transform(input);
   };
 
-  // User Profile Operations
   public query ({ caller }) func getCallerUserProfile() : async ?UserProfile {
     if (not (AccessControl.hasPermission(accessControlState, caller, #user))) {
       Runtime.trap("Unauthorized: Only users can view profiles");
@@ -583,13 +820,11 @@ actor {
     userProfiles.add(caller, profile);
   };
 
-  // Business User Role Operations
   public shared ({ caller }) func inviteUserToBusinessRole(businessId : Nat, userPrincipal : Principal, role : BusinessRole) : async Nat {
     if (not (AccessControl.hasPermission(accessControlState, caller, #user))) {
       Runtime.trap("Unauthorized: Only users can invite to businesses");
     };
 
-    // Only business owner can invite users
     let _ = verifyBusinessOwnership(caller, businessId);
 
     let businessUserRole : BusinessUserRole = {
@@ -613,7 +848,7 @@ actor {
 
     let _ = verifyBusinessReadAccess(caller, businessId);
 
-    businessUserRoles.values().toArray().filter(
+    businessUserRoles.values().toArray().filter<BusinessUserRole>(
       func(r) { r.businessId == businessId }
     );
   };
@@ -628,7 +863,6 @@ actor {
       case (?r) { r };
     };
 
-    // Only business owner can remove users
     let _ = verifyBusinessOwnership(caller, role.businessId);
 
     businessUserRoles.remove(roleId);
@@ -642,7 +876,6 @@ actor {
     getBusinessUserRole(caller, businessId);
   };
 
-  // Business Operations
   public shared ({ caller }) func createBusiness(name : Text, gstin : Text, state : Text, address : Text) : async Nat {
     if (not (AccessControl.hasPermission(accessControlState, caller, #user))) {
       Runtime.trap("Unauthorized: Only users can create businesses");
@@ -659,15 +892,12 @@ actor {
     };
 
     businesses.add(businessIdCounter, business);
-    
-    // Seed standard Indian chart of accounts
     seedChartOfAccounts(businessIdCounter);
-    
+
     businessIdCounter += 1;
     businessIdCounter - 1;
   };
 
-  // Helper function to seed chart of accounts
   func seedChartOfAccounts(businessId : Nat) {
     let standardAccounts : [(Text, Text, AccountGroup, Text)] = [
       ("1001", "Cash in Hand", #Assets, "Current Assets"),
@@ -735,596 +965,4 @@ actor {
       accountIdCounter += 1;
     };
   };
-
-  public query ({ caller }) func getMyBusinesses() : async [Business] {
-    if (not (AccessControl.hasPermission(accessControlState, caller, #user))) {
-      Runtime.trap("Unauthorized: Only users can get their businesses");
-    };
-
-    // Return businesses owned by caller plus businesses where caller has a role
-    let ownedBusinesses = businesses.values().toArray().filter(
-      func(b) { b.owner == caller }
-    );
-
-    let roleBusinessIds = businessUserRoles.values().toArray().filter(
-      func(r) { r.userPrincipal == caller }
-    ).map(func(r) { r.businessId });
-
-    let roleBusinesses = businesses.values().toArray().filter(
-      func(b) {
-        for (id in roleBusinessIds.vals()) {
-          if (b.id == id) { return true };
-        };
-        false;
-      }
-    );
-
-    ownedBusinesses.concat(roleBusinesses);
-  };
-
-  public query ({ caller }) func getBusiness(id : Nat) : async Business {
-    if (not (AccessControl.hasPermission(accessControlState, caller, #user))) {
-      Runtime.trap("Unauthorized: Only users can view businesses");
-    };
-
-    verifyBusinessReadAccess(caller, id);
-  };
-
-  public shared ({ caller }) func updateBusiness(id : Nat, name : Text, gstin : Text, state : Text, address : Text) : async () {
-    if (not (AccessControl.hasPermission(accessControlState, caller, #user))) {
-      Runtime.trap("Unauthorized: Only users can update businesses");
-    };
-
-    let business = verifyBusinessWriteAccess(caller, id);
-
-    let updatedBusiness = { business with name; gstin; state; address };
-    businesses.add(id, updatedBusiness);
-  };
-
-  public shared ({ caller }) func deleteBusiness(id : Nat) : async () {
-    if (not (AccessControl.hasPermission(accessControlState, caller, #user))) {
-      Runtime.trap("Unauthorized: Only users can delete businesses");
-    };
-
-    let _ = verifyBusinessDeleteAccess(caller, id);
-    businesses.remove(id);
-  };
-
-  // Customer Operations
-  public shared ({ caller }) func createCustomer(businessId : Nat, name : Text, gstin : Text, phone : Text, email : Text, address : Text) : async Nat {
-    if (not (AccessControl.hasPermission(accessControlState, caller, #user))) {
-      Runtime.trap("Unauthorized: Only users can create customers");
-    };
-
-    let _ = verifyBusinessWriteAccess(caller, businessId);
-
-    let customer : Customer = {
-      id = customerIdCounter;
-      businessId;
-      name;
-      gstin;
-      phone;
-      email;
-      address;
-      createdAt = Time.now();
-    };
-
-    customers.add(customerIdCounter, customer);
-    customerIdCounter += 1;
-    customerIdCounter - 1;
-  };
-
-  public query ({ caller }) func getCustomers(businessId : Nat) : async [Customer] {
-    if (not (AccessControl.hasPermission(accessControlState, caller, #user))) {
-      Runtime.trap("Unauthorized: Only users can view customers");
-    };
-
-    let _ = verifyBusinessReadAccess(caller, businessId);
-
-    customers.values().toArray().filter(
-      func(c) { c.businessId == businessId }
-    );
-  };
-
-  public query ({ caller }) func getCustomer(id : Nat) : async Customer {
-    if (not (AccessControl.hasPermission(accessControlState, caller, #user))) {
-      Runtime.trap("Unauthorized: Only users can view customers");
-    };
-
-    let customer = switch (customers.get(id)) {
-      case (null) { Runtime.trap("Customer not found") };
-      case (?c) { c };
-    };
-
-    let _ = verifyBusinessReadAccess(caller, customer.businessId);
-    customer;
-  };
-
-  public shared ({ caller }) func updateCustomer(id : Nat, name : Text, gstin : Text, phone : Text, email : Text, address : Text) : async () {
-    if (not (AccessControl.hasPermission(accessControlState, caller, #user))) {
-      Runtime.trap("Unauthorized: Only users can update customers");
-    };
-
-    let customer = switch (customers.get(id)) {
-      case (null) { Runtime.trap("Customer not found") };
-      case (?c) { c };
-    };
-
-    let _ = verifyBusinessWriteAccess(caller, customer.businessId);
-
-    let updatedCustomer = { customer with name; gstin; phone; email; address };
-    customers.add(id, updatedCustomer);
-  };
-
-  public shared ({ caller }) func deleteCustomer(id : Nat) : async () {
-    if (not (AccessControl.hasPermission(accessControlState, caller, #user))) {
-      Runtime.trap("Unauthorized: Only users can delete customers");
-    };
-
-    let customer = switch (customers.get(id)) {
-      case (null) { Runtime.trap("Customer not found") };
-      case (?c) { c };
-    };
-
-    let _ = verifyBusinessDeleteAccess(caller, customer.businessId);
-    customers.remove(id);
-  };
-
-  // Vendor Operations
-  public shared ({ caller }) func createVendor(businessId : Nat, name : Text, gstin : Text, phone : Text, email : Text, address : Text) : async Nat {
-    if (not (AccessControl.hasPermission(accessControlState, caller, #user))) {
-      Runtime.trap("Unauthorized: Only users can create vendors");
-    };
-
-    let _ = verifyBusinessWriteAccess(caller, businessId);
-
-    let vendor : Vendor = {
-      id = vendorIdCounter;
-      businessId;
-      name;
-      gstin;
-      phone;
-      email;
-      address;
-      createdAt = Time.now();
-    };
-
-    vendors.add(vendorIdCounter, vendor);
-    vendorIdCounter += 1;
-    vendorIdCounter - 1;
-  };
-
-  public query ({ caller }) func getVendors(businessId : Nat) : async [Vendor] {
-    if (not (AccessControl.hasPermission(accessControlState, caller, #user))) {
-      Runtime.trap("Unauthorized: Only users can view vendors");
-    };
-
-    let _ = verifyBusinessReadAccess(caller, businessId);
-
-    vendors.values().toArray().filter(
-      func(v) { v.businessId == businessId }
-    );
-  };
-
-  public query ({ caller }) func getVendor(id : Nat) : async Vendor {
-    if (not (AccessControl.hasPermission(accessControlState, caller, #user))) {
-      Runtime.trap("Unauthorized: Only users can view vendors");
-    };
-
-    let vendor = switch (vendors.get(id)) {
-      case (null) { Runtime.trap("Vendor not found") };
-      case (?v) { v };
-    };
-
-    let _ = verifyBusinessReadAccess(caller, vendor.businessId);
-    vendor;
-  };
-
-  public shared ({ caller }) func updateVendor(id : Nat, name : Text, gstin : Text, phone : Text, email : Text, address : Text) : async () {
-    if (not (AccessControl.hasPermission(accessControlState, caller, #user))) {
-      Runtime.trap("Unauthorized: Only users can update vendors");
-    };
-
-    let vendor = switch (vendors.get(id)) {
-      case (null) { Runtime.trap("Vendor not found") };
-      case (?v) { v };
-    };
-
-    let _ = verifyBusinessWriteAccess(caller, vendor.businessId);
-
-    let updatedVendor = { vendor with name; gstin; phone; email; address };
-    vendors.add(id, updatedVendor);
-  };
-
-  public shared ({ caller }) func deleteVendor(id : Nat) : async () {
-    if (not (AccessControl.hasPermission(accessControlState, caller, #user))) {
-      Runtime.trap("Unauthorized: Only users can delete vendors");
-    };
-
-    let vendor = switch (vendors.get(id)) {
-      case (null) { Runtime.trap("Vendor not found") };
-      case (?v) { v };
-    };
-
-    let _ = verifyBusinessDeleteAccess(caller, vendor.businessId);
-    vendors.remove(id);
-  };
-
-  // Product Operations
-  public shared ({ caller }) func createProduct(businessId : Nat, name : Text, hsnCode : Text, gstRate : Nat, purchasePrice : Nat, sellingPrice : Nat, stockQuantity : Nat) : async Nat {
-    if (not (AccessControl.hasPermission(accessControlState, caller, #user))) {
-      Runtime.trap("Unauthorized: Only users can create products");
-    };
-
-    let _ = verifyBusinessWriteAccess(caller, businessId);
-
-    let product : Product = {
-      id = productIdCounter;
-      businessId;
-      name;
-      hsnCode;
-      gstRate;
-      purchasePrice;
-      sellingPrice;
-      stockQuantity;
-      createdAt = Time.now();
-    };
-
-    products.add(productIdCounter, product);
-    productIdCounter += 1;
-    productIdCounter - 1;
-  };
-
-  public query ({ caller }) func getProducts(businessId : Nat) : async [Product] {
-    if (not (AccessControl.hasPermission(accessControlState, caller, #user))) {
-      Runtime.trap("Unauthorized: Only users can view products");
-    };
-
-    let _ = verifyBusinessReadAccess(caller, businessId);
-
-    products.values().toArray().filter(
-      func(p) { p.businessId == businessId }
-    );
-  };
-
-  public query ({ caller }) func getProduct(id : Nat) : async Product {
-    if (not (AccessControl.hasPermission(accessControlState, caller, #user))) {
-      Runtime.trap("Unauthorized: Only users can view products");
-    };
-
-    let product = switch (products.get(id)) {
-      case (null) { Runtime.trap("Product not found") };
-      case (?p) { p };
-    };
-
-    let _ = verifyBusinessReadAccess(caller, product.businessId);
-    product;
-  };
-
-  public shared ({ caller }) func updateProduct(id : Nat, name : Text, hsnCode : Text, gstRate : Nat, purchasePrice : Nat, sellingPrice : Nat, stockQuantity : Nat) : async () {
-    if (not (AccessControl.hasPermission(accessControlState, caller, #user))) {
-      Runtime.trap("Unauthorized: Only users can update products");
-    };
-
-    let product = switch (products.get(id)) {
-      case (null) { Runtime.trap("Product not found") };
-      case (?p) { p };
-    };
-
-    let _ = verifyBusinessWriteAccess(caller, product.businessId);
-
-    let updatedProduct = {
-      product with name;
-      hsnCode;
-      gstRate;
-      purchasePrice;
-      sellingPrice;
-      stockQuantity;
-    };
-    products.add(id, updatedProduct);
-  };
-
-  public shared ({ caller }) func deleteProduct(id : Nat) : async () {
-    if (not (AccessControl.hasPermission(accessControlState, caller, #user))) {
-      Runtime.trap("Unauthorized: Only users can delete products");
-    };
-
-    let product = switch (products.get(id)) {
-      case (null) { Runtime.trap("Product not found") };
-      case (?p) { p };
-    };
-
-    let _ = verifyBusinessDeleteAccess(caller, product.businessId);
-    products.remove(id);
-  };
-
-  // Invoice Operations
-  public shared ({ caller }) func createInvoice(
-    businessId : Nat,
-    customerId : Nat,
-    invoiceNumber : Text,
-    invoiceDate : Time.Time,
-    dueDate : Time.Time,
-    items : [(Nat, Text, Nat, Nat, Nat)],
-  ) : async Nat {
-    if (not (AccessControl.hasPermission(accessControlState, caller, #user))) {
-      Runtime.trap("Unauthorized: Only users can create invoices");
-    };
-
-    let _ = verifyBusinessWriteAccess(caller, businessId);
-
-    var subtotal = 0;
-    var cgst = 0;
-    var sgst = 0;
-    var igst = 0;
-
-    for ((productId, productName, quantity, price, gstRate) in items.vals()) {
-      let itemTotal = quantity * price;
-      subtotal += itemTotal;
-      let gstAmount = (itemTotal * gstRate) / 100;
-      cgst += gstAmount / 2;
-      sgst += gstAmount / 2;
-    };
-
-    let totalAmount = subtotal + cgst + sgst + igst;
-
-    let invoice : Invoice = {
-      id = invoiceIdCounter;
-      businessId;
-      customerId;
-      invoiceNumber;
-      invoiceDate;
-      dueDate;
-      subtotal;
-      cgst;
-      sgst;
-      igst;
-      totalAmount;
-      status = #draft;
-      createdAt = Time.now();
-    };
-
-    invoices.add(invoiceIdCounter, invoice);
-
-    for ((productId, productName, quantity, price, gstRate) in items.vals()) {
-      let item : InvoiceItem = {
-        id = invoiceItemIdCounter;
-        invoiceId = invoiceIdCounter;
-        productId;
-        productName;
-        quantity;
-        price;
-        gstRate;
-        total = quantity * price;
-      };
-      invoiceItems.add(invoiceItemIdCounter, item);
-      invoiceItemIdCounter += 1;
-    };
-
-    invoiceIdCounter += 1;
-    invoiceIdCounter - 1;
-  };
-
-  public query ({ caller }) func getInvoices(businessId : Nat) : async [Invoice] {
-    if (not (AccessControl.hasPermission(accessControlState, caller, #user))) {
-      Runtime.trap("Unauthorized: Only users can view invoices");
-    };
-
-    let _ = verifyBusinessReadAccess(caller, businessId);
-
-    invoices.values().toArray().filter(
-      func(i) { i.businessId == businessId }
-    );
-  };
-
-  public query ({ caller }) func getInvoice(id : Nat) : async Invoice {
-    if (not (AccessControl.hasPermission(accessControlState, caller, #user))) {
-      Runtime.trap("Unauthorized: Only users can view invoices");
-    };
-
-    let invoice = switch (invoices.get(id)) {
-      case (null) { Runtime.trap("Invoice not found") };
-      case (?i) { i };
-    };
-
-    let _ = verifyBusinessReadAccess(caller, invoice.businessId);
-    invoice;
-  };
-
-  public shared ({ caller }) func updateInvoiceStatus(id : Nat, status : InvoiceStatus) : async () {
-    if (not (AccessControl.hasPermission(accessControlState, caller, #user))) {
-      Runtime.trap("Unauthorized: Only users can update invoices");
-    };
-
-    let invoice = switch (invoices.get(id)) {
-      case (null) { Runtime.trap("Invoice not found") };
-      case (?i) { i };
-    };
-
-    let _ = verifyBusinessWriteAccess(caller, invoice.businessId);
-
-    let updatedInvoice = { invoice with status };
-    invoices.add(id, updatedInvoice);
-  };
-
-  public shared ({ caller }) func addPaymentToInvoice(invoiceId : Nat, amount : Nat, paymentDate : Time.Time, paymentMode : Text, referenceNo : Text) : async Nat {
-    if (not (AccessControl.hasPermission(accessControlState, caller, #user))) {
-      Runtime.trap("Unauthorized: Only users can add payments");
-    };
-
-    let invoice = switch (invoices.get(invoiceId)) {
-      case (null) { Runtime.trap("Invoice not found") };
-      case (?i) { i };
-    };
-
-    let _ = verifyBusinessWriteAccess(caller, invoice.businessId);
-
-    let payment : Payment = {
-      id = paymentIdCounter;
-      invoiceId;
-      amount;
-      paymentDate;
-      paymentMode;
-      referenceNo;
-      createdAt = Time.now();
-    };
-
-    payments.add(paymentIdCounter, payment);
-    paymentIdCounter += 1;
-    paymentIdCounter - 1;
-  };
-
-  public query ({ caller }) func getOverdueInvoices(businessId : Nat) : async [Invoice] {
-    if (not (AccessControl.hasPermission(accessControlState, caller, #user))) {
-      Runtime.trap("Unauthorized: Only users can view invoices");
-    };
-
-    let _ = verifyBusinessReadAccess(caller, businessId);
-
-    invoices.values().toArray().filter(
-      func(i) { i.businessId == businessId and i.status == #overdue }
-    );
-  };
-
-  public shared ({ caller }) func deleteInvoice(id : Nat) : async () {
-    if (not (AccessControl.hasPermission(accessControlState, caller, #user))) {
-      Runtime.trap("Unauthorized: Only users can delete invoices");
-    };
-
-    let invoice = switch (invoices.get(id)) {
-      case (null) { Runtime.trap("Invoice not found") };
-      case (?i) { i };
-    };
-
-    let _ = verifyBusinessDeleteAccess(caller, invoice.businessId);
-    invoices.remove(id);
-  };
-
-  // Expense Operations
-  public shared ({ caller }) func createExpense(businessId : Nat, vendorId : ?Nat, category : Text, amount : Nat, gstAmount : Nat, expenseDate : Time.Time, description : Text) : async Nat {
-    if (not (AccessControl.hasPermission(accessControlState, caller, #user))) {
-      Runtime.trap("Unauthorized: Only users can create expenses");
-    };
-
-    let _ = verifyBusinessWriteAccess(caller, businessId);
-
-    let expense : Expense = {
-      id = expenseIdCounter;
-      businessId;
-      vendorId;
-      category;
-      amount;
-      gstAmount;
-      expenseDate;
-      description;
-      createdAt = Time.now();
-    };
-
-    expenses.add(expenseIdCounter, expense);
-    expenseIdCounter += 1;
-    expenseIdCounter - 1;
-  };
-
-  public query ({ caller }) func getExpenses(businessId : Nat) : async [Expense] {
-    if (not (AccessControl.hasPermission(accessControlState, caller, #user))) {
-      Runtime.trap("Unauthorized: Only users can view expenses");
-    };
-
-    let _ = verifyBusinessReadAccess(caller, businessId);
-
-    expenses.values().toArray().filter(
-      func(e) { e.businessId == businessId }
-    );
-  };
-
-  public query ({ caller }) func getExpense(id : Nat) : async Expense {
-    if (not (AccessControl.hasPermission(accessControlState, caller, #user))) {
-      Runtime.trap("Unauthorized: Only users can view expenses");
-    };
-
-    let expense = switch (expenses.get(id)) {
-      case (null) { Runtime.trap("Expense not found") };
-      case (?e) { e };
-    };
-
-    let _ = verifyBusinessReadAccess(caller, expense.businessId);
-    expense;
-  };
-
-  public shared ({ caller }) func updateExpense(id : Nat, category : Text, amount : Nat, gstAmount : Nat, expenseDate : Time.Time, description : Text) : async () {
-    if (not (AccessControl.hasPermission(accessControlState, caller, #user))) {
-      Runtime.trap("Unauthorized: Only users can update expenses");
-    };
-
-    let expense = switch (expenses.get(id)) {
-      case (null) { Runtime.trap("Expense not found") };
-      case (?e) { e };
-    };
-
-    let _ = verifyBusinessWriteAccess(caller, expense.businessId);
-
-    let updatedExpense = { expense with category; amount; gstAmount; expenseDate; description };
-    expenses.add(id, updatedExpense);
-  };
-
-  public shared ({ caller }) func deleteExpense(id : Nat) : async () {
-    if (not (AccessControl.hasPermission(accessControlState, caller, #user))) {
-      Runtime.trap("Unauthorized: Only users can delete expenses");
-    };
-
-    let expense = switch (expenses.get(id)) {
-      case (null) { Runtime.trap("Expense not found") };
-      case (?e) { e };
-    };
-
-    let _ = verifyBusinessDeleteAccess(caller, expense.businessId);
-    expenses.remove(id);
-  };
-
-  // GST Report Operations
-  public shared ({ caller }) func generateGstReport(businessId : Nat, periodStart : Time.Time, periodEnd : Time.Time) : async Nat {
-    if (not (AccessControl.hasPermission(accessControlState, caller, #user))) {
-      Runtime.trap("Unauthorized: Only users can generate GST reports");
-    };
-
-    let _ = verifyBusinessReadAccess(caller, businessId);
-
-    var outputGst = 0;
-    var inputGst = 0;
-
-    for (invoice in invoices.values()) {
-      if (invoice.businessId == businessId and (invoice.status == #paid or invoice.status == #sent)) {
-        if (invoice.invoiceDate >= periodStart and invoice.invoiceDate <= periodEnd) {
-          outputGst += invoice.cgst + invoice.sgst + invoice.igst;
-        };
-      };
-    };
-
-    for (expense in expenses.values()) {
-      if (expense.businessId == businessId) {
-        if (expense.expenseDate >= periodStart and expense.expenseDate <= periodEnd) {
-          inputGst += expense.gstAmount;
-        };
-      };
-    };
-
-    let netGstPayable = if (outputGst > inputGst) { outputGst - inputGst } else { 0 };
-
-    let report : GstReport = {
-      id = gstReportIdCounter;
-      businessId;
-      periodStart;
-      periodEnd;
-      outputGst;
-      inputGst;
-      netGstPayable;
-      createdAt = Time.now();
-    };
-
-    gstReports.add(gstReportIdCounter, report);
-    gstReportIdCounter += 1;
-    gstReportIdCounter - 1;
-  };
-
-  // Additional code omitted for brevity...
 };

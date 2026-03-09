@@ -86,6 +86,8 @@ export interface SuperUserConfig {
   dbSyncOnInvoice: boolean;
   dbSyncOnExpense: boolean;
   dbSyncOnPayment: boolean;
+  /** Password required to download a backup. Default: BACKUP2024 */
+  backupPassword: string;
 }
 
 const LS_SUPERUSER_CONFIG = "lekhya_superuser_config";
@@ -114,6 +116,7 @@ const DEFAULT_CONFIG: SuperUserConfig = {
   dbSyncOnInvoice: false,
   dbSyncOnExpense: false,
   dbSyncOnPayment: false,
+  backupPassword: "BACKUP2024",
 };
 
 export function getSuperUserConfig(): SuperUserConfig {

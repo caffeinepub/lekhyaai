@@ -13,11 +13,14 @@ import { Switch } from "@/components/ui/switch";
 import { Textarea } from "@/components/ui/textarea";
 import {
   Bot,
+  CalendarClock,
+  CheckCircle2,
   CreditCard,
   Database,
   Download,
   Eye,
   EyeOff,
+  IndianRupee,
   KeyRound,
   Lock,
   Mail,
@@ -26,8 +29,9 @@ import {
   ServerCog,
   Shield,
   Smartphone,
+  Timer,
 } from "lucide-react";
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { toast } from "sonner";
 import { useActor } from "../hooks/useActor";
 import {
@@ -42,11 +46,142 @@ import {
 } from "../utils/pricingConfig";
 import {
   type SuperUserConfig,
+  activateSuperUser,
   changeSuperUserPin,
   deactivateSuperUser,
   getSuperUserConfig,
+  isSuperUserActive,
   saveSuperUserConfig,
 } from "../utils/superuser";
+
+// ─── PIN Gate ────────────────────────────────────────────────────────────────
+function PinGate({ onUnlocked }: { onUnlocked: () => void }) {
+  const [pin, setPin] = useState("");
+  const [showPin, setShowPin] = useState(false);
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState("");
+  const inputRef = useRef<HTMLInputElement>(null);
+
+  useEffect(() => {
+    inputRef.current?.focus();
+  }, []);
+
+  async function handleSubmit(e: React.FormEvent) {
+    e.preventDefault();
+    if (!pin.trim()) {
+      setError("Please enter the Developer PIN");
+      return;
+    }
+    setLoading(true);
+    setError("");
+    try {
+      const ok = await activateSuperUser(pin.trim());
+      if (ok) {
+        toast.success("Developer Mode activated");
+        onUnlocked();
+      } else {
+        setError("Incorrect PIN. Please try again.");
+        setPin("");
+        inputRef.current?.focus();
+      }
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  return (
+    <div className="min-h-[80vh] flex items-center justify-center px-4">
+      <div className="w-full max-w-sm">
+        <div className="bg-card border border-border rounded-2xl p-8 shadow-lg space-y-6">
+          {/* Icon + title */}
+          <div className="flex flex-col items-center gap-3 text-center">
+            <div className="w-14 h-14 rounded-2xl bg-primary/10 flex items-center justify-center">
+              <Shield className="w-7 h-7 text-primary" />
+            </div>
+            <div>
+              <h1 className="text-xl font-display font-bold text-foreground">
+                Developer Mode
+              </h1>
+              <p className="text-sm text-muted-foreground mt-1">
+                Enter the SuperUser PIN to continue
+              </p>
+            </div>
+          </div>
+
+          {/* PIN form */}
+          <form onSubmit={handleSubmit} className="space-y-4">
+            <div className="space-y-1.5">
+              <Label htmlFor="dev-pin" className="text-sm font-medium">
+                Developer PIN
+              </Label>
+              <div className="relative">
+                <Input
+                  ref={inputRef}
+                  id="dev-pin"
+                  data-ocid="superuser.pin_gate.input"
+                  type={showPin ? "text" : "password"}
+                  value={pin}
+                  onChange={(e) => {
+                    setPin(e.target.value);
+                    setError("");
+                  }}
+                  placeholder="Enter PIN"
+                  className={`pr-10 font-mono tracking-widest text-center text-lg ${error ? "border-destructive focus-visible:ring-destructive" : ""}`}
+                  autoComplete="off"
+                />
+                <button
+                  type="button"
+                  onClick={() => setShowPin((p) => !p)}
+                  className="absolute right-3 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground"
+                  tabIndex={-1}
+                >
+                  {showPin ? (
+                    <EyeOff className="w-4 h-4" />
+                  ) : (
+                    <Eye className="w-4 h-4" />
+                  )}
+                </button>
+              </div>
+              {error && (
+                <p
+                  className="text-xs text-destructive flex items-center gap-1"
+                  data-ocid="superuser.pin_gate.error_state"
+                >
+                  {error}
+                </p>
+              )}
+            </div>
+
+            <Button
+              data-ocid="superuser.pin_gate.submit_button"
+              type="submit"
+              className="w-full"
+              disabled={loading || !pin.trim()}
+            >
+              {loading ? (
+                <>
+                  <span className="w-4 h-4 rounded-full border-2 border-primary-foreground border-t-transparent animate-spin mr-2" />
+                  Verifying…
+                </>
+              ) : (
+                <>
+                  <KeyRound className="w-4 h-4 mr-2" />
+                  Activate Developer Mode
+                </>
+              )}
+            </Button>
+          </form>
+
+          <p className="text-[11px] text-muted-foreground text-center">
+            This area is restricted to SuperUser access only.
+            <br />
+            Not visible to regular app users.
+          </p>
+        </div>
+      </div>
+    </div>
+  );
+}
 
 function Section({
   icon: Icon,
@@ -115,25 +250,37 @@ function ApiKeyField({
   );
 }
 
-export default function SuperuserSettingsPage() {
+function SuperuserSettingsContent() {
   const [config, setConfig] = useState<SuperUserConfig>(() =>
     getSuperUserConfig(),
   );
   const [saving, setSaving] = useState(false);
 
-  // Stripe backend status
+  // Stripe + Razorpay backend status
   const { actor, isFetching: actorFetching } = useActor();
   const [stripeConfigured, setStripeConfigured] = useState<boolean | null>(
     null,
   );
   const [stripeSaving, setStripeSaving] = useState(false);
 
+  // Razorpay config state
+  const [razorpayConfigured, setRazorpayConfigured] = useState<boolean | null>(
+    null,
+  );
+  const [razorpayKeyId, setRazorpayKeyId] = useState("");
+  const [razorpayKeySecret, setRazorpayKeySecret] = useState("");
+  const [showRazorpaySecret, setShowRazorpaySecret] = useState(false);
+  const [razorpaySaving, setRazorpaySaving] = useState(false);
+
   useEffect(() => {
     if (!actor || actorFetching) return;
-    actor
-      .isStripeConfigured()
-      .then((v) => setStripeConfigured(v))
-      .catch(() => setStripeConfigured(false));
+    Promise.all([
+      actor.isStripeConfigured().catch(() => false),
+      actor.isRazorpayConfigured().catch(() => false),
+    ]).then(([stripe, razorpay]) => {
+      setStripeConfigured(stripe);
+      setRazorpayConfigured(razorpay);
+    });
   }, [actor, actorFetching]);
 
   async function handleSaveStripeBackend() {
@@ -151,6 +298,21 @@ export default function SuperuserSettingsPage() {
       toast.error("Failed to save Stripe configuration to backend");
     } finally {
       setStripeSaving(false);
+    }
+  }
+
+  async function handleSaveRazorpayBackend() {
+    if (!actor || !razorpayKeyId || !razorpayKeySecret) return;
+    setRazorpaySaving(true);
+    try {
+      await actor.setRazorpayConfiguration(razorpayKeyId, razorpayKeySecret);
+      toast.success("Razorpay configured on backend");
+      const v = await actor.isRazorpayConfigured();
+      setRazorpayConfigured(v);
+    } catch {
+      toast.error("Failed to save Razorpay configuration to backend");
+    } finally {
+      setRazorpaySaving(false);
     }
   }
 
@@ -181,6 +343,129 @@ export default function SuperuserSettingsPage() {
   const lastBackup = getLastBackupTime();
   const backupOverdue =
     config.autoBackupEnabled && isBackupOverdue(config.autoBackupFrequency);
+
+  // Password-protected backup
+  const LS_BACKUP_LOCKOUT = "lekhya_backup_lockout";
+  const MAX_BACKUP_ATTEMPTS = 3;
+  const LOCKOUT_DURATION = 5 * 60 * 1000; // 5 minutes
+  const [backupPasswordInput, setBackupPasswordInput] = useState("");
+  const [showBackupForm, setShowBackupForm] = useState(false);
+  const [backupAttempts, setBackupAttempts] = useState(0);
+  const [backupPwdError, setBackupPwdError] = useState("");
+  const [backupLocked, setBackupLocked] = useState(() => {
+    const lockout = localStorage.getItem(LS_BACKUP_LOCKOUT);
+    if (!lockout) return false;
+    return Date.now() - Number(lockout) < LOCKOUT_DURATION;
+  });
+  const [backupLockRemaining, setBackupLockRemaining] = useState(0);
+
+  useEffect(() => {
+    if (!backupLocked) return;
+    const lockout = localStorage.getItem(LS_BACKUP_LOCKOUT);
+    if (!lockout) {
+      setBackupLocked(false);
+      return;
+    }
+    const interval = setInterval(() => {
+      const remaining = LOCKOUT_DURATION - (Date.now() - Number(lockout));
+      if (remaining <= 0) {
+        setBackupLocked(false);
+        setBackupAttempts(0);
+        localStorage.removeItem(LS_BACKUP_LOCKOUT);
+        clearInterval(interval);
+      } else {
+        setBackupLockRemaining(Math.ceil(remaining / 1000));
+      }
+    }, 1000);
+    return () => clearInterval(interval);
+  }, [backupLocked]);
+
+  function handleBackupPasswordSubmit() {
+    const correct = config.backupPassword || "BACKUP2024";
+    if (backupPasswordInput === correct) {
+      exportAllDataAsJSON();
+      toast.success("Backup downloaded successfully");
+      setShowBackupForm(false);
+      setBackupPasswordInput("");
+      setBackupAttempts(0);
+      setBackupPwdError("");
+    } else {
+      const newAttempts = backupAttempts + 1;
+      setBackupAttempts(newAttempts);
+      if (newAttempts >= MAX_BACKUP_ATTEMPTS) {
+        const now = Date.now();
+        localStorage.setItem(LS_BACKUP_LOCKOUT, String(now));
+        setBackupLocked(true);
+        setBackupLockRemaining(Math.ceil(LOCKOUT_DURATION / 1000));
+        setBackupPwdError("Too many incorrect attempts. Locked for 5 minutes.");
+        setShowBackupForm(false);
+      } else {
+        setBackupPwdError(
+          `Incorrect password. ${MAX_BACKUP_ATTEMPTS - newAttempts} attempt${MAX_BACKUP_ATTEMPTS - newAttempts === 1 ? "" : "s"} remaining.`,
+        );
+      }
+      setBackupPasswordInput("");
+    }
+  }
+
+  // Backup requests from Client Admins
+  const [backupRequests, setBackupRequests] = useState<
+    Array<{
+      id: string;
+      requestedBy: string;
+      requestedAt: string;
+      status: "pending" | "fulfilled";
+    }>
+  >(() => {
+    try {
+      return JSON.parse(localStorage.getItem("lekhya_backup_requests") ?? "[]");
+    } catch {
+      return [];
+    }
+  });
+
+  function markRequestFulfilled(id: string) {
+    const updated = backupRequests.map((r) =>
+      r.id === id ? { ...r, status: "fulfilled" as const } : r,
+    );
+    setBackupRequests(updated);
+    localStorage.setItem("lekhya_backup_requests", JSON.stringify(updated));
+    toast.success("Backup request marked as fulfilled");
+  }
+
+  // Subscription renewal mock data
+  const RENEWAL_CLIENTS = [
+    {
+      id: "C001",
+      name: "Sunrise Traders Pvt Ltd",
+      plan: "Professional",
+      expiresAt: Date.now() + 5 * 24 * 60 * 60 * 1000,
+    },
+    {
+      id: "C002",
+      name: "GreenLeaf Exports",
+      plan: "Starter",
+      expiresAt: Date.now() + 18 * 24 * 60 * 60 * 1000,
+    },
+    {
+      id: "C003",
+      name: "Mehta & Sons CA Firm",
+      plan: "Enterprise",
+      expiresAt: Date.now() + 12 * 24 * 60 * 60 * 1000,
+    },
+    {
+      id: "C004",
+      name: "Agro Input Suppliers",
+      plan: "Starter",
+      expiresAt: Date.now() + 40 * 24 * 60 * 60 * 1000,
+    },
+    {
+      id: "C005",
+      name: "Coastal Seafoods Ltd",
+      plan: "Professional",
+      expiresAt: Date.now() + 2 * 24 * 60 * 60 * 1000,
+    },
+  ];
 
   // PIN change state
   const [oldPin, setOldPin] = useState("");
@@ -538,6 +823,117 @@ export default function SuperuserSettingsPage() {
             <>
               <Save className="w-4 h-4 mr-2" />
               Save Stripe Secret to Backend
+            </>
+          )}
+        </Button>
+      </Section>
+
+      {/* Razorpay Payment Gateway */}
+      <Section
+        icon={IndianRupee}
+        title="Razorpay Payment Gateway"
+        subtitle="Indian payment gateway for subscription billing (preferred for India)"
+      >
+        {/* Razorpay backend status */}
+        <div
+          className="flex items-center justify-between bg-muted/40 rounded-xl px-4 py-3 border border-border"
+          data-ocid="superuser.razorpay_backend_status.card"
+        >
+          <div className="flex items-center gap-2">
+            <IndianRupee className="w-4 h-4 text-muted-foreground" />
+            <span className="text-sm font-medium text-foreground">
+              Razorpay Backend Status
+            </span>
+          </div>
+          {razorpayConfigured === null ? (
+            <Badge variant="outline" className="text-xs">
+              Checking…
+            </Badge>
+          ) : razorpayConfigured ? (
+            <Badge className="bg-success/15 text-success border border-success/30 text-xs font-semibold">
+              Backend: Configured
+            </Badge>
+          ) : (
+            <Badge className="bg-amber-100 text-amber-700 border border-amber-200 dark:bg-amber-900/20 dark:text-amber-300 dark:border-amber-800 text-xs font-semibold">
+              Backend: Not Set
+            </Badge>
+          )}
+        </div>
+
+        {/* Razorpay Key ID */}
+        <div className="space-y-1.5">
+          <Label className="text-sm font-medium">Razorpay Key ID</Label>
+          <Input
+            data-ocid="superuser.razorpay_key_id.input"
+            type="text"
+            value={razorpayKeyId}
+            onChange={(e) => setRazorpayKeyId(e.target.value)}
+            placeholder="rzp_live_..."
+            className="font-mono text-xs"
+          />
+        </div>
+
+        {/* Razorpay Key Secret */}
+        <div className="space-y-1.5">
+          <Label className="text-sm font-medium">Razorpay Key Secret</Label>
+          <div className="relative">
+            <Input
+              data-ocid="superuser.razorpay_key_secret.input"
+              type={showRazorpaySecret ? "text" : "password"}
+              value={razorpayKeySecret}
+              onChange={(e) => setRazorpayKeySecret(e.target.value)}
+              placeholder="Paste Razorpay secret key here"
+              className="pr-10 font-mono text-xs"
+            />
+            <button
+              type="button"
+              onClick={() => setShowRazorpaySecret((p) => !p)}
+              className="absolute right-2 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground"
+            >
+              {showRazorpaySecret ? (
+                <EyeOff className="w-4 h-4" />
+              ) : (
+                <Eye className="w-4 h-4" />
+              )}
+            </button>
+          </div>
+        </div>
+
+        <div className="bg-muted/50 rounded-lg p-3 text-xs text-muted-foreground">
+          Get your keys from the{" "}
+          <a
+            href="https://dashboard.razorpay.com/app/website-app-settings/api-keys"
+            target="_blank"
+            rel="noopener noreferrer"
+            className="text-primary underline"
+          >
+            Razorpay Dashboard
+          </a>
+          . After saving, create a test order at{" "}
+          <strong>/app/razorpay-checkout</strong> to verify.
+        </div>
+
+        <Button
+          data-ocid="superuser.save_razorpay_backend.button"
+          onClick={handleSaveRazorpayBackend}
+          disabled={
+            razorpaySaving ||
+            !razorpayKeyId ||
+            !razorpayKeySecret ||
+            actorFetching
+          }
+          variant="outline"
+          className="w-full border-primary/30 text-primary hover:bg-primary/5"
+        >
+          {razorpaySaving ? (
+            <>
+              <span className="mr-2 h-4 w-4 animate-spin inline-block border-2 border-current border-t-transparent rounded-full" />
+              Saving to Backend…
+            </>
+          ) : (
+            <>
+              <Save className="w-4 h-4 mr-2" />
+              Save Razorpay Keys to Backend
             </>
           )}
         </Button>
@@ -922,9 +1318,27 @@ export default function SuperuserSettingsPage() {
       <Section
         icon={Database}
         title="Data Backup"
-        subtitle="Export all account data as a JSON file"
+        subtitle="Password-protected export of all account data"
       >
-        <div className="space-y-3">
+        <div className="space-y-4">
+          {/* Backup Access Password config */}
+          <div className="space-y-1.5 border-b border-border pb-4">
+            <Label className="text-sm font-medium">
+              Backup Access Password
+            </Label>
+            <p className="text-xs text-muted-foreground">
+              Required before any backup download. Default: BACKUP2024
+            </p>
+            <ApiKeyField
+              label="Backup Password"
+              value={config.backupPassword}
+              onChange={(v) => setField("backupPassword", v)}
+              placeholder="BACKUP2024"
+              ocid="superuser.backup_password.input"
+            />
+          </div>
+
+          {/* Status */}
           {lastBackup ? (
             <div
               className={`rounded-lg p-3 text-xs flex items-center gap-2 ${
@@ -957,23 +1371,249 @@ export default function SuperuserSettingsPage() {
             </div>
           )}
 
-          <Button
-            data-ocid="superuser.backup_now.button"
-            onClick={() => {
-              exportAllDataAsJSON();
-              toast.success("Backup downloaded successfully");
-            }}
-            variant="outline"
-            className="gap-2"
-          >
-            <Download className="w-4 h-4" />
-            Download Backup Now
-          </Button>
+          {/* Lockout warning */}
+          {backupLocked && (
+            <div
+              className="flex items-center gap-2 p-3 bg-destructive/10 border border-destructive/20 rounded-lg text-xs text-destructive"
+              data-ocid="superuser.backup.locked_state"
+            >
+              <Lock className="w-4 h-4 flex-shrink-0" />
+              Backup locked for {backupLockRemaining}s after too many failed
+              attempts.
+            </div>
+          )}
+
+          {/* Download button → inline password prompt */}
+          {!backupLocked && (
+            <>
+              <Button
+                data-ocid="superuser.backup_now.button"
+                onClick={() => setShowBackupForm((p) => !p)}
+                variant="outline"
+                className="gap-2"
+              >
+                <Download className="w-4 h-4" />
+                Download Backup Now
+              </Button>
+
+              {showBackupForm && (
+                <div className="border border-amber-200 dark:border-amber-800 bg-amber-50 dark:bg-amber-950/20 rounded-xl p-4 space-y-3">
+                  <p className="text-xs font-semibold text-amber-800 dark:text-amber-200 flex items-center gap-1.5">
+                    <Lock className="w-3.5 h-3.5" />
+                    Enter Backup Password to continue
+                  </p>
+                  <div className="flex gap-2">
+                    <Input
+                      data-ocid="superuser.backup_password_confirm.input"
+                      type="password"
+                      value={backupPasswordInput}
+                      onChange={(e) => {
+                        setBackupPasswordInput(e.target.value);
+                        setBackupPwdError("");
+                      }}
+                      placeholder="Enter backup password"
+                      className={`flex-1 ${backupPwdError ? "border-destructive" : ""}`}
+                      onKeyDown={(e) => {
+                        if (e.key === "Enter") handleBackupPasswordSubmit();
+                      }}
+                    />
+                    <Button
+                      data-ocid="superuser.backup_password_submit.button"
+                      onClick={handleBackupPasswordSubmit}
+                      size="sm"
+                      disabled={!backupPasswordInput}
+                    >
+                      <Download className="w-4 h-4 mr-1" />
+                      Download
+                    </Button>
+                    <Button
+                      data-ocid="superuser.backup_password_cancel.button"
+                      variant="ghost"
+                      size="sm"
+                      onClick={() => {
+                        setShowBackupForm(false);
+                        setBackupPasswordInput("");
+                        setBackupPwdError("");
+                      }}
+                    >
+                      Cancel
+                    </Button>
+                  </div>
+                  {backupPwdError && (
+                    <p
+                      className="text-xs text-destructive"
+                      data-ocid="superuser.backup_password.error_state"
+                    >
+                      {backupPwdError}
+                    </p>
+                  )}
+                </div>
+              )}
+            </>
+          )}
 
           <p className="text-xs text-muted-foreground">
-            Downloads all localStorage data as a JSON file. Store it securely
-            for data recovery.
+            Downloads all localStorage data as a JSON file. Password-protected
+            to prevent unauthorized data export.
           </p>
+
+          {/* Backup Requests from Client Admins */}
+          <div className="border-t border-border pt-4">
+            <h4 className="text-sm font-semibold text-foreground mb-3 flex items-center gap-2">
+              <Timer className="w-4 h-4 text-primary" />
+              Backup Requests from Clients
+              {backupRequests.filter((r) => r.status === "pending").length >
+                0 && (
+                <span className="ml-auto text-[11px] font-bold px-2 py-0.5 rounded-full bg-destructive/10 text-destructive border border-destructive/20">
+                  {backupRequests.filter((r) => r.status === "pending").length}{" "}
+                  pending
+                </span>
+              )}
+            </h4>
+            {backupRequests.length === 0 ? (
+              <p
+                className="text-xs text-muted-foreground py-3 text-center"
+                data-ocid="superuser.backup_requests.empty_state"
+              >
+                No backup requests yet. Clients can request a backup from
+                Settings.
+              </p>
+            ) : (
+              <div
+                className="space-y-2"
+                data-ocid="superuser.backup_requests.list"
+              >
+                {backupRequests.map((req, idx) => (
+                  <div
+                    key={req.id}
+                    data-ocid={`superuser.backup_request.item.${idx + 1}`}
+                    className={`flex items-center justify-between p-3 rounded-lg border text-sm ${
+                      req.status === "pending"
+                        ? "border-amber-200 bg-amber-50 dark:bg-amber-950/20 dark:border-amber-800"
+                        : "border-border bg-muted/20"
+                    }`}
+                  >
+                    <div>
+                      <p className="font-medium text-foreground">
+                        {req.requestedBy}
+                      </p>
+                      <p className="text-xs text-muted-foreground">
+                        {new Date(req.requestedAt).toLocaleString("en-IN", {
+                          day: "2-digit",
+                          month: "short",
+                          year: "numeric",
+                          hour: "2-digit",
+                          minute: "2-digit",
+                        })}
+                      </p>
+                    </div>
+                    <div className="flex items-center gap-2">
+                      {req.status === "pending" ? (
+                        <Button
+                          size="sm"
+                          variant="outline"
+                          data-ocid={`superuser.backup_request.fulfill.button.${idx + 1}`}
+                          onClick={() => markRequestFulfilled(req.id)}
+                          className="text-xs h-7"
+                        >
+                          <CheckCircle2 className="w-3.5 h-3.5 mr-1" />
+                          Mark Fulfilled
+                        </Button>
+                      ) : (
+                        <span className="text-xs px-2 py-0.5 rounded-full bg-success/10 text-success border border-success/20 font-medium">
+                          Fulfilled
+                        </span>
+                      )}
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+        </div>
+      </Section>
+
+      {/* Subscription Renewals */}
+      <Section
+        icon={CalendarClock}
+        title="Subscription Renewals"
+        subtitle="Monitor client subscription expiry and send renewal reminders"
+      >
+        <div className="space-y-3">
+          {RENEWAL_CLIENTS.map((client, idx) => {
+            const daysLeft = Math.ceil(
+              (client.expiresAt - Date.now()) / (24 * 60 * 60 * 1000),
+            );
+            const isCritical = daysLeft <= 3;
+            const isExpiringSoon = daysLeft <= 15;
+
+            return (
+              <div
+                key={client.id}
+                data-ocid={`superuser.renewal.item.${idx + 1}`}
+                className={`flex items-center justify-between p-3 rounded-xl border transition-colors ${
+                  isCritical
+                    ? "border-destructive/30 bg-destructive/5"
+                    : isExpiringSoon
+                      ? "border-amber-200 bg-amber-50 dark:bg-amber-950/20 dark:border-amber-800"
+                      : "border-border bg-card"
+                }`}
+              >
+                <div className="min-w-0 flex-1">
+                  <div className="flex items-center gap-2 flex-wrap">
+                    <p className="font-medium text-sm text-foreground truncate">
+                      {client.name}
+                    </p>
+                    <span className="text-[10px] px-1.5 py-0.5 rounded-full bg-primary/10 text-primary font-medium flex-shrink-0">
+                      {client.plan}
+                    </span>
+                    {isCritical && (
+                      <span className="text-[10px] px-1.5 py-0.5 rounded-full bg-destructive/15 text-destructive font-bold border border-destructive/20 flex-shrink-0">
+                        CRITICAL
+                      </span>
+                    )}
+                    {!isCritical && isExpiringSoon && (
+                      <span className="text-[10px] px-1.5 py-0.5 rounded-full bg-amber-100 text-amber-700 font-semibold border border-amber-200 dark:bg-amber-900/20 dark:text-amber-300 dark:border-amber-800 flex-shrink-0">
+                        Expiring Soon
+                      </span>
+                    )}
+                  </div>
+                  <p
+                    className={`text-xs mt-0.5 ${
+                      isCritical
+                        ? "text-destructive font-semibold"
+                        : isExpiringSoon
+                          ? "text-amber-700 dark:text-amber-300"
+                          : "text-muted-foreground"
+                    }`}
+                  >
+                    Expires in {daysLeft} day{daysLeft !== 1 ? "s" : ""} —{" "}
+                    {new Date(client.expiresAt).toLocaleDateString("en-IN", {
+                      day: "2-digit",
+                      month: "short",
+                      year: "numeric",
+                    })}
+                  </p>
+                </div>
+                <Button
+                  size="sm"
+                  variant={isCritical ? "destructive" : "outline"}
+                  data-ocid={`superuser.renewal.remind.button.${idx + 1}`}
+                  onClick={() =>
+                    toast.success(
+                      `Renewal reminder queued for ${client.name}`,
+                      {
+                        description: `${client.plan} plan — ${daysLeft} days remaining`,
+                      },
+                    )
+                  }
+                  className="ml-3 flex-shrink-0 text-xs h-8"
+                >
+                  Send Reminder
+                </Button>
+              </div>
+            );
+          })}
         </div>
       </Section>
 
@@ -995,4 +1635,14 @@ export default function SuperuserSettingsPage() {
       </div>
     </div>
   );
+}
+
+export default function SuperuserSettingsPage() {
+  const [unlocked, setUnlocked] = useState(() => isSuperUserActive());
+
+  if (!unlocked) {
+    return <PinGate onUnlocked={() => setUnlocked(true)} />;
+  }
+
+  return <SuperuserSettingsContent />;
 }

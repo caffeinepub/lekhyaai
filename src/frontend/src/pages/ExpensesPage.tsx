@@ -20,7 +20,6 @@ import { Edit2, Loader2, Plus, Receipt, Search, Trash2 } from "lucide-react";
 import { motion } from "motion/react";
 import { useEffect, useState } from "react";
 import { toast } from "sonner";
-import type { Expense } from "../backend.d";
 import DeleteConfirmDialog from "../components/DeleteConfirmDialog";
 import {
   useCreateExpense,
@@ -29,6 +28,7 @@ import {
   useUpdateExpense,
   useVendors,
 } from "../hooks/useQueries";
+import type { Expense } from "../types/backend-types";
 import {
   dateStringToNs,
   formatDate,

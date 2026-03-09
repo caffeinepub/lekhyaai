@@ -27,7 +27,6 @@ import {
 import { motion } from "motion/react";
 import { useEffect, useState } from "react";
 import { toast } from "sonner";
-import type { Product } from "../backend.d";
 import DeleteConfirmDialog from "../components/DeleteConfirmDialog";
 import { useBusiness } from "../context/BusinessContext";
 import {
@@ -36,6 +35,7 @@ import {
   useProducts,
   useUpdateProduct,
 } from "../hooks/useQueries";
+import type { Product } from "../types/backend-types";
 import {
   fuzzyMatchProduct,
   getBusinessCategory,

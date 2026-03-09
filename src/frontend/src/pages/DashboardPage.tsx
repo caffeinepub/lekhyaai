@@ -26,11 +26,12 @@ import {
   XAxis,
   YAxis,
 } from "recharts";
-import { InvoiceStatus } from "../backend.d";
 import { useBusiness } from "../context/BusinessContext";
 import { useActor } from "../hooks/useActor";
 import { useDashboard } from "../hooks/useQueries";
 import { useCustomers } from "../hooks/useQueries";
+import { InvoiceStatus } from "../types/backend-types";
+import type { ExtendedActor } from "../types/extended-actor";
 import { formatDate, formatINR, formatINRNumber } from "../utils/formatINR";
 import { currentFY } from "../utils/formatINR";
 
@@ -78,9 +79,10 @@ function CashFlowForecast({ businessId }: { businessId: string }) {
     async function computeForecast() {
       if (!actor || !activeBusinessId) return;
       try {
+        const ext = actor as unknown as ExtendedActor;
         const [allInvoices, allExpenses] = await Promise.all([
-          actor.getInvoices(activeBusinessId),
-          actor.getExpenses(activeBusinessId),
+          ext.getInvoices(activeBusinessId),
+          ext.getExpenses(activeBusinessId),
         ]);
 
         // Group invoices (paid) and expenses by month over the last 6 months

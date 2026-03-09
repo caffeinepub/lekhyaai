@@ -6,9 +6,10 @@ import {
   useEffect,
   useState,
 } from "react";
-import type { Business } from "../backend.d";
 import { useActor } from "../hooks/useActor";
 import { useInternetIdentity } from "../hooks/useInternetIdentity";
+import type { Business } from "../types/backend-types";
+import type { ExtendedActor } from "../types/extended-actor";
 
 interface BusinessContextValue {
   businesses: Business[];
@@ -37,7 +38,7 @@ export function BusinessProvider({ children }: { children: ReactNode }) {
     queryKey: ["businesses", identity?.getPrincipal().toString()],
     queryFn: async () => {
       if (!actor) return [];
-      return actor.getMyBusinesses();
+      return (actor as unknown as ExtendedActor).getMyBusinesses();
     },
     enabled: !!actor && !isFetching && !!identity,
     staleTime: 30_000,

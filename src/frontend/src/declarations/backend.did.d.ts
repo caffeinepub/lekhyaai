@@ -10,15 +10,6 @@ import type { ActorMethod } from '@icp-sdk/core/agent';
 import type { IDL } from '@icp-sdk/core/candid';
 import type { Principal } from '@icp-sdk/core/principal';
 
-export interface Business {
-  'id' : bigint,
-  'owner' : Principal,
-  'name' : string,
-  'createdAt' : Time,
-  'state' : string,
-  'gstin' : string,
-  'address' : string,
-}
 export type BusinessRole = { 'ca' : null } |
   { 'accountant' : null } |
   { 'admin' : null };
@@ -30,56 +21,29 @@ export interface BusinessUserRole {
   'invitedBy' : Principal,
   'userPrincipal' : Principal,
 }
-export interface Customer {
+export interface ClientTenant {
   'id' : bigint,
-  'businessId' : bigint,
-  'name' : string,
-  'createdAt' : Time,
-  'email' : string,
-  'gstin' : string,
-  'address' : string,
-  'phone' : string,
+  'status' : TenantStatus,
+  'subscriptionEndDate' : Time,
+  'subscriptionPlan' : string,
+  'businessName' : string,
+  'tenantId' : string,
+  'clientPrincipal' : Principal,
+  'crmLeadId' : [] | [bigint],
+  'provisionedAt' : Time,
+  'subscriptionStartDate' : Time,
+  'contactEmail' : string,
 }
-export interface Expense {
+export interface PaymentRecord {
   'id' : bigint,
-  'expenseDate' : Time,
-  'businessId' : bigint,
+  'paymentStatus' : string,
+  'paymentMethod' : string,
+  'clientName' : string,
   'createdAt' : Time,
-  'description' : string,
-  'gstAmount' : bigint,
-  'vendorId' : [] | [bigint],
-  'category' : string,
-  'amount' : bigint,
-}
-export interface Invoice {
-  'id' : bigint,
-  'status' : InvoiceStatus,
-  'businessId' : bigint,
-  'cgst' : bigint,
-  'igst' : bigint,
-  'createdAt' : Time,
-  'sgst' : bigint,
-  'dueDate' : Time,
-  'invoiceDate' : Time,
-  'invoiceNumber' : string,
-  'totalAmount' : bigint,
-  'customerId' : bigint,
-  'subtotal' : bigint,
-}
-export type InvoiceStatus = { 'paid' : null } |
-  { 'sent' : null } |
-  { 'overdue' : null } |
-  { 'draft' : null };
-export interface Product {
-  'id' : bigint,
-  'stockQuantity' : bigint,
-  'purchasePrice' : bigint,
-  'businessId' : bigint,
-  'name' : string,
-  'createdAt' : Time,
-  'sellingPrice' : bigint,
-  'hsnCode' : string,
-  'gstRate' : bigint,
+  'subscriptionPlan' : string,
+  'orderId' : string,
+  'clientPrincipal' : Principal,
+  'amountInr' : bigint,
 }
 export interface ShoppingItem {
   'productName' : string,
@@ -96,6 +60,9 @@ export type StripeSessionStatus = {
     'completed' : { 'userPrincipal' : [] | [string], 'response' : string }
   } |
   { 'failed' : { 'error' : string } };
+export type TenantStatus = { 'active' : null } |
+  { 'expired' : null } |
+  { 'suspended' : null };
 export type Time = bigint;
 export interface TransformationInput {
   'context' : Uint8Array,
@@ -110,16 +77,6 @@ export interface UserProfile { 'name' : string, 'email' : string }
 export type UserRole = { 'admin' : null } |
   { 'user' : null } |
   { 'guest' : null };
-export interface Vendor {
-  'id' : bigint,
-  'businessId' : bigint,
-  'name' : string,
-  'createdAt' : Time,
-  'email' : string,
-  'gstin' : string,
-  'address' : string,
-  'phone' : string,
-}
 export interface http_header { 'value' : string, 'name' : string }
 export interface http_request_result {
   'status' : bigint,
@@ -128,100 +85,55 @@ export interface http_request_result {
 }
 export interface _SERVICE {
   '_initializeAccessControlWithSecret' : ActorMethod<[string], undefined>,
-  'addPaymentToInvoice' : ActorMethod<
-    [bigint, bigint, Time, string, string],
-    bigint
-  >,
   'assignCallerUserRole' : ActorMethod<[Principal, UserRole], undefined>,
   'createBusiness' : ActorMethod<[string, string, string, string], bigint>,
   'createCheckoutSession' : ActorMethod<
     [Array<ShoppingItem>, string, string],
     string
   >,
-  'createCustomer' : ActorMethod<
-    [bigint, string, string, string, string, string],
-    bigint
-  >,
-  'createExpense' : ActorMethod<
-    [bigint, [] | [bigint], string, bigint, bigint, Time, string],
-    bigint
-  >,
-  'createInvoice' : ActorMethod<
-    [
-      bigint,
-      bigint,
-      string,
-      Time,
-      Time,
-      Array<[bigint, string, bigint, bigint, bigint]>,
-    ],
-    bigint
-  >,
-  'createProduct' : ActorMethod<
-    [bigint, string, string, bigint, bigint, bigint, bigint],
-    bigint
-  >,
-  'createVendor' : ActorMethod<
-    [bigint, string, string, string, string, string],
-    bigint
-  >,
-  'deleteBusiness' : ActorMethod<[bigint], undefined>,
-  'deleteCustomer' : ActorMethod<[bigint], undefined>,
-  'deleteExpense' : ActorMethod<[bigint], undefined>,
-  'deleteInvoice' : ActorMethod<[bigint], undefined>,
-  'deleteProduct' : ActorMethod<[bigint], undefined>,
-  'deleteVendor' : ActorMethod<[bigint], undefined>,
-  'generateGstReport' : ActorMethod<[bigint, Time, Time], bigint>,
-  'getBusiness' : ActorMethod<[bigint], Business>,
+  'createRazorpayOrder' : ActorMethod<[bigint, string, string], string>,
   'getBusinessUsers' : ActorMethod<[bigint], Array<BusinessUserRole>>,
   'getCallerUserProfile' : ActorMethod<[], [] | [UserProfile]>,
   'getCallerUserRole' : ActorMethod<[], UserRole>,
-  'getCustomer' : ActorMethod<[bigint], Customer>,
-  'getCustomers' : ActorMethod<[bigint], Array<Customer>>,
-  'getExpense' : ActorMethod<[bigint], Expense>,
-  'getExpenses' : ActorMethod<[bigint], Array<Expense>>,
-  'getInvoice' : ActorMethod<[bigint], Invoice>,
-  'getInvoices' : ActorMethod<[bigint], Array<Invoice>>,
+  'getClientTenants' : ActorMethod<[], Array<ClientTenant>>,
   'getMyBusinessRole' : ActorMethod<[bigint], [] | [BusinessRole]>,
-  'getMyBusinesses' : ActorMethod<[], Array<Business>>,
-  'getOverdueInvoices' : ActorMethod<[bigint], Array<Invoice>>,
-  'getProduct' : ActorMethod<[bigint], Product>,
-  'getProducts' : ActorMethod<[bigint], Array<Product>>,
+  'getMyTenant' : ActorMethod<[], [] | [ClientTenant]>,
+  'getPaymentRecords' : ActorMethod<[], Array<PaymentRecord>>,
+  'getPaymentSummary' : ActorMethod<
+    [],
+    {
+      'expiringIn30Days' : bigint,
+      'suspendedAccounts' : bigint,
+      'totalRevenue' : bigint,
+      'activeSubscriptions' : bigint,
+    }
+  >,
+  'getRazorpayKeyId' : ActorMethod<[], string>,
   'getStripeSessionStatus' : ActorMethod<[string], StripeSessionStatus>,
   'getUserProfile' : ActorMethod<[Principal], [] | [UserProfile]>,
-  'getVendor' : ActorMethod<[bigint], Vendor>,
-  'getVendors' : ActorMethod<[bigint], Array<Vendor>>,
   'inviteUserToBusinessRole' : ActorMethod<
     [bigint, Principal, BusinessRole],
     bigint
   >,
   'isCallerAdmin' : ActorMethod<[], boolean>,
+  'isRazorpayConfigured' : ActorMethod<[], boolean>,
   'isStripeConfigured' : ActorMethod<[], boolean>,
+  'provisionClientTenant' : ActorMethod<
+    [Principal, string, string, string, bigint],
+    string
+  >,
+  'reactivateTenant' : ActorMethod<[string], undefined>,
+  'recordPayment' : ActorMethod<
+    [string, Principal, string, string, bigint, string],
+    undefined
+  >,
   'removeBusinessUser' : ActorMethod<[bigint], undefined>,
   'saveCallerUserProfile' : ActorMethod<[UserProfile], undefined>,
+  'setRazorpayConfiguration' : ActorMethod<[string, string], undefined>,
   'setStripeConfiguration' : ActorMethod<[StripeConfiguration], undefined>,
+  'suspendTenant' : ActorMethod<[string], undefined>,
   'transform' : ActorMethod<[TransformationInput], TransformationOutput>,
-  'updateBusiness' : ActorMethod<
-    [bigint, string, string, string, string],
-    undefined
-  >,
-  'updateCustomer' : ActorMethod<
-    [bigint, string, string, string, string, string],
-    undefined
-  >,
-  'updateExpense' : ActorMethod<
-    [bigint, string, bigint, bigint, Time, string],
-    undefined
-  >,
-  'updateInvoiceStatus' : ActorMethod<[bigint, InvoiceStatus], undefined>,
-  'updateProduct' : ActorMethod<
-    [bigint, string, string, bigint, bigint, bigint, bigint],
-    undefined
-  >,
-  'updateVendor' : ActorMethod<
-    [bigint, string, string, string, string, string],
-    undefined
-  >,
+  'updateTenantSubscription' : ActorMethod<[string, string, bigint], undefined>,
 }
 export declare const idlService: IDL.ServiceClass;
 export declare const idlInitArgs: IDL.Type[];

@@ -17,7 +17,7 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table";
-import { AlertTriangle, Download, Lock } from "lucide-react";
+import { AlertTriangle, Download, Lock, ShieldAlert } from "lucide-react";
 import { useMemo, useState } from "react";
 import {
   Bar,
@@ -28,6 +28,7 @@ import {
   XAxis,
   YAxis,
 } from "recharts";
+import { getFlaggedUsers } from "../utils/securityMonitor";
 
 // ─── Types ─────────────────────────────────────────────────────────
 
@@ -273,6 +274,11 @@ export default function ActivityLogPage() {
     localStorage.getItem("lekhya_superuser_active") === "1";
 
   const [logs] = useState<ActivityLogEntry[]>(() => loadLogs());
+  const flaggedUsers = useMemo(() => getFlaggedUsers(logs), [logs]);
+  const flaggedUserIds = useMemo(
+    () => new Set(flaggedUsers.map((f) => f.userId)),
+    [flaggedUsers],
+  );
   const [dateFrom, setDateFrom] = useState("");
   const [dateTo, setDateTo] = useState("");
   const [userFilter, setUserFilter] = useState("all");
@@ -368,6 +374,32 @@ export default function ActivityLogPage() {
           Export CSV
         </Button>
       </div>
+
+      {/* Anomaly Banner */}
+      {flaggedUsers.length > 0 && (
+        <div
+          className="mb-6 flex items-center gap-3 p-4 rounded-xl border border-destructive/30 bg-destructive/5 text-destructive"
+          data-ocid="activity.anomaly_banner.card"
+        >
+          <ShieldAlert className="w-5 h-5 flex-shrink-0" />
+          <div className="flex-1 min-w-0">
+            <p className="text-sm font-semibold">
+              {flaggedUsers.length} anomalous user
+              {flaggedUsers.length !== 1 ? "s" : ""} detected
+            </p>
+            <p className="text-xs mt-0.5 text-muted-foreground">
+              Suspicious behavior patterns found in activity logs
+            </p>
+          </div>
+          <a
+            href="/app/security-monitor"
+            className="text-xs font-semibold underline underline-offset-2 whitespace-nowrap hover:no-underline flex-shrink-0"
+            data-ocid="activity.view_security_monitor.link"
+          >
+            View Security Monitor →
+          </a>
+        </div>
+      )}
 
       {/* Filters */}
       <div className="grid grid-cols-2 md:grid-cols-4 gap-3 mb-6">
@@ -483,52 +515,61 @@ export default function ActivityLogPage() {
                 </TableCell>
               </TableRow>
             ) : (
-              paginated.map((log, i) => (
-                <TableRow
-                  key={log.id}
-                  data-ocid={`activity.log.row.item.${i + 1}`}
-                >
-                  <TableCell className="text-xs text-muted-foreground whitespace-nowrap">
-                    {new Date(log.timestamp).toLocaleString("en-IN", {
-                      day: "2-digit",
-                      month: "short",
-                      year: "numeric",
-                      hour: "2-digit",
-                      minute: "2-digit",
-                    })}
-                  </TableCell>
-                  <TableCell>
-                    <div className="flex items-center gap-2">
-                      <div className="w-6 h-6 rounded-full bg-primary/15 flex items-center justify-center flex-shrink-0">
-                        <span className="text-[9px] font-bold text-primary">
-                          {log.userName
-                            .split(" ")
-                            .map((n) => n[0])
-                            .join("")
-                            .slice(0, 2)}
+              paginated.map((log, i) => {
+                const isFlagged = flaggedUserIds.has(log.userId);
+                return (
+                  <TableRow
+                    key={log.id}
+                    data-ocid={`activity.log.row.item.${i + 1}`}
+                    className={
+                      isFlagged ? "bg-amber-50 dark:bg-amber-950/20" : ""
+                    }
+                  >
+                    <TableCell className="text-xs text-muted-foreground whitespace-nowrap">
+                      {new Date(log.timestamp).toLocaleString("en-IN", {
+                        day: "2-digit",
+                        month: "short",
+                        year: "numeric",
+                        hour: "2-digit",
+                        minute: "2-digit",
+                      })}
+                    </TableCell>
+                    <TableCell>
+                      <div className="flex items-center gap-2">
+                        <div className="w-6 h-6 rounded-full bg-primary/15 flex items-center justify-center flex-shrink-0">
+                          <span className="text-[9px] font-bold text-primary">
+                            {log.userName
+                              .split(" ")
+                              .map((n) => n[0])
+                              .join("")
+                              .slice(0, 2)}
+                          </span>
+                        </div>
+                        <span className="text-sm font-medium">
+                          {log.userName}
                         </span>
+                        {isFlagged && (
+                          <AlertTriangle className="w-3.5 h-3.5 text-amber-500 flex-shrink-0" />
+                        )}
                       </div>
-                      <span className="text-sm font-medium">
-                        {log.userName}
+                    </TableCell>
+                    <TableCell>
+                      <span
+                        className="text-xs px-2 py-1 rounded-full font-medium text-white"
+                        style={{
+                          background: MODULE_COLORS[log.module] ?? "#888",
+                        }}
+                      >
+                        {log.module}
                       </span>
-                    </div>
-                  </TableCell>
-                  <TableCell>
-                    <span
-                      className="text-xs px-2 py-1 rounded-full font-medium text-white"
-                      style={{
-                        background: MODULE_COLORS[log.module] ?? "#888",
-                      }}
-                    >
-                      {log.module}
-                    </span>
-                  </TableCell>
-                  <TableCell className="text-sm">{log.action}</TableCell>
-                  <TableCell className="hidden lg:table-cell text-xs text-muted-foreground">
-                    {log.details ?? "—"}
-                  </TableCell>
-                </TableRow>
-              ))
+                    </TableCell>
+                    <TableCell className="text-sm">{log.action}</TableCell>
+                    <TableCell className="hidden lg:table-cell text-xs text-muted-foreground">
+                      {log.details ?? "—"}
+                    </TableCell>
+                  </TableRow>
+                );
+              })
             )}
           </TableBody>
         </Table>

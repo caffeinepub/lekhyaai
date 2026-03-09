@@ -5,7 +5,6 @@ import { Edit2, Plus, Search, Trash2, Truck } from "lucide-react";
 import { motion } from "motion/react";
 import { useState } from "react";
 import { toast } from "sonner";
-import type { Vendor } from "../backend.d";
 import ContactModal, { type ContactFormData } from "../components/ContactModal";
 import DeleteConfirmDialog from "../components/DeleteConfirmDialog";
 import {
@@ -14,6 +13,7 @@ import {
   useUpdateVendor,
   useVendors,
 } from "../hooks/useQueries";
+import type { Vendor } from "../types/backend-types";
 import { formatDate } from "../utils/formatINR";
 
 export default function VendorsPage() {

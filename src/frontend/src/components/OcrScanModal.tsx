@@ -36,7 +36,7 @@ import {
 } from "lucide-react";
 import { motion } from "motion/react";
 import { useCallback, useRef, useState } from "react";
-import type { Customer } from "../backend.d";
+import type { Customer } from "../types/backend-types";
 import { amountToWordsIN } from "../utils/formatINR";
 import { GST_RATES } from "../utils/indianStates";
 

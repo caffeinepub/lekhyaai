@@ -89,56 +89,35 @@ export class ExternalBlob {
         return this;
     }
 }
+export interface ClientTenant {
+    id: bigint;
+    status: TenantStatus;
+    subscriptionEndDate: Time;
+    subscriptionPlan: string;
+    businessName: string;
+    tenantId: string;
+    clientPrincipal: Principal;
+    crmLeadId?: bigint;
+    provisionedAt: Time;
+    subscriptionStartDate: Time;
+    contactEmail: string;
+}
 export interface TransformationOutput {
     status: bigint;
     body: Uint8Array;
     headers: Array<http_header>;
 }
 export type Time = bigint;
-export interface Business {
+export interface PaymentRecord {
     id: bigint;
-    owner: Principal;
-    name: string;
+    paymentStatus: string;
+    paymentMethod: string;
+    clientName: string;
     createdAt: Time;
-    state: string;
-    gstin: string;
-    address: string;
-}
-export interface Invoice {
-    id: bigint;
-    status: InvoiceStatus;
-    businessId: bigint;
-    cgst: bigint;
-    igst: bigint;
-    createdAt: Time;
-    sgst: bigint;
-    dueDate: Time;
-    invoiceDate: Time;
-    invoiceNumber: string;
-    totalAmount: bigint;
-    customerId: bigint;
-    subtotal: bigint;
-}
-export interface Expense {
-    id: bigint;
-    expenseDate: Time;
-    businessId: bigint;
-    createdAt: Time;
-    description: string;
-    gstAmount: bigint;
-    vendorId?: bigint;
-    category: string;
-    amount: bigint;
-}
-export interface Customer {
-    id: bigint;
-    businessId: bigint;
-    name: string;
-    createdAt: Time;
-    email: string;
-    gstin: string;
-    address: string;
-    phone: string;
+    subscriptionPlan: string;
+    orderId: string;
+    clientPrincipal: Principal;
+    amountInr: bigint;
 }
 export interface http_header {
     value: string;
@@ -184,27 +163,6 @@ export interface StripeConfiguration {
     allowedCountries: Array<string>;
     secretKey: string;
 }
-export interface Vendor {
-    id: bigint;
-    businessId: bigint;
-    name: string;
-    createdAt: Time;
-    email: string;
-    gstin: string;
-    address: string;
-    phone: string;
-}
-export interface Product {
-    id: bigint;
-    stockQuantity: bigint;
-    purchasePrice: bigint;
-    businessId: bigint;
-    name: string;
-    createdAt: Time;
-    sellingPrice: bigint;
-    hsnCode: string;
-    gstRate: bigint;
-}
 export interface UserProfile {
     name: string;
     email: string;
@@ -214,11 +172,10 @@ export enum BusinessRole {
     accountant = "accountant",
     admin = "admin"
 }
-export enum InvoiceStatus {
-    paid = "paid",
-    sent = "sent",
-    overdue = "overdue",
-    draft = "draft"
+export enum TenantStatus {
+    active = "active",
+    expired = "expired",
+    suspended = "suspended"
 }
 export enum UserRole {
     admin = "admin",
@@ -227,56 +184,42 @@ export enum UserRole {
 }
 export interface backendInterface {
     _initializeAccessControlWithSecret(userSecret: string): Promise<void>;
-    addPaymentToInvoice(invoiceId: bigint, amount: bigint, paymentDate: Time, paymentMode: string, referenceNo: string): Promise<bigint>;
     assignCallerUserRole(user: Principal, role: UserRole): Promise<void>;
     createBusiness(name: string, gstin: string, state: string, address: string): Promise<bigint>;
     createCheckoutSession(items: Array<ShoppingItem>, successUrl: string, cancelUrl: string): Promise<string>;
-    createCustomer(businessId: bigint, name: string, gstin: string, phone: string, email: string, address: string): Promise<bigint>;
-    createExpense(businessId: bigint, vendorId: bigint | null, category: string, amount: bigint, gstAmount: bigint, expenseDate: Time, description: string): Promise<bigint>;
-    createInvoice(businessId: bigint, customerId: bigint, invoiceNumber: string, invoiceDate: Time, dueDate: Time, items: Array<[bigint, string, bigint, bigint, bigint]>): Promise<bigint>;
-    createProduct(businessId: bigint, name: string, hsnCode: string, gstRate: bigint, purchasePrice: bigint, sellingPrice: bigint, stockQuantity: bigint): Promise<bigint>;
-    createVendor(businessId: bigint, name: string, gstin: string, phone: string, email: string, address: string): Promise<bigint>;
-    deleteBusiness(id: bigint): Promise<void>;
-    deleteCustomer(id: bigint): Promise<void>;
-    deleteExpense(id: bigint): Promise<void>;
-    deleteInvoice(id: bigint): Promise<void>;
-    deleteProduct(id: bigint): Promise<void>;
-    deleteVendor(id: bigint): Promise<void>;
-    generateGstReport(businessId: bigint, periodStart: Time, periodEnd: Time): Promise<bigint>;
-    getBusiness(id: bigint): Promise<Business>;
+    createRazorpayOrder(amountInPaise: bigint, currency: string, receipt: string): Promise<string>;
     getBusinessUsers(businessId: bigint): Promise<Array<BusinessUserRole>>;
     getCallerUserProfile(): Promise<UserProfile | null>;
     getCallerUserRole(): Promise<UserRole>;
-    getCustomer(id: bigint): Promise<Customer>;
-    getCustomers(businessId: bigint): Promise<Array<Customer>>;
-    getExpense(id: bigint): Promise<Expense>;
-    getExpenses(businessId: bigint): Promise<Array<Expense>>;
-    getInvoice(id: bigint): Promise<Invoice>;
-    getInvoices(businessId: bigint): Promise<Array<Invoice>>;
+    getClientTenants(): Promise<Array<ClientTenant>>;
     getMyBusinessRole(businessId: bigint): Promise<BusinessRole | null>;
-    getMyBusinesses(): Promise<Array<Business>>;
-    getOverdueInvoices(businessId: bigint): Promise<Array<Invoice>>;
-    getProduct(id: bigint): Promise<Product>;
-    getProducts(businessId: bigint): Promise<Array<Product>>;
+    getMyTenant(): Promise<ClientTenant | null>;
+    getPaymentRecords(): Promise<Array<PaymentRecord>>;
+    getPaymentSummary(): Promise<{
+        expiringIn30Days: bigint;
+        suspendedAccounts: bigint;
+        totalRevenue: bigint;
+        activeSubscriptions: bigint;
+    }>;
+    getRazorpayKeyId(): Promise<string>;
     getStripeSessionStatus(sessionId: string): Promise<StripeSessionStatus>;
     getUserProfile(user: Principal): Promise<UserProfile | null>;
-    getVendor(id: bigint): Promise<Vendor>;
-    getVendors(businessId: bigint): Promise<Array<Vendor>>;
     inviteUserToBusinessRole(businessId: bigint, userPrincipal: Principal, role: BusinessRole): Promise<bigint>;
     isCallerAdmin(): Promise<boolean>;
+    isRazorpayConfigured(): Promise<boolean>;
     isStripeConfigured(): Promise<boolean>;
+    provisionClientTenant(clientPrincipal: Principal, businessName: string, contactEmail: string, subscriptionPlan: string, durationDays: bigint): Promise<string>;
+    reactivateTenant(tenantId: string): Promise<void>;
+    recordPayment(orderId: string, clientPrincipal: Principal, clientName: string, subscriptionPlan: string, amountInr: bigint, paymentMethod: string): Promise<void>;
     removeBusinessUser(roleId: bigint): Promise<void>;
     saveCallerUserProfile(profile: UserProfile): Promise<void>;
+    setRazorpayConfiguration(keyId: string, keySecret: string): Promise<void>;
     setStripeConfiguration(config: StripeConfiguration): Promise<void>;
+    suspendTenant(tenantId: string): Promise<void>;
     transform(input: TransformationInput): Promise<TransformationOutput>;
-    updateBusiness(id: bigint, name: string, gstin: string, state: string, address: string): Promise<void>;
-    updateCustomer(id: bigint, name: string, gstin: string, phone: string, email: string, address: string): Promise<void>;
-    updateExpense(id: bigint, category: string, amount: bigint, gstAmount: bigint, expenseDate: Time, description: string): Promise<void>;
-    updateInvoiceStatus(id: bigint, status: InvoiceStatus): Promise<void>;
-    updateProduct(id: bigint, name: string, hsnCode: string, gstRate: bigint, purchasePrice: bigint, sellingPrice: bigint, stockQuantity: bigint): Promise<void>;
-    updateVendor(id: bigint, name: string, gstin: string, phone: string, email: string, address: string): Promise<void>;
+    updateTenantSubscription(tenantId: string, newPlan: string, additionalDays: bigint): Promise<void>;
 }
-import type { BusinessRole as _BusinessRole, BusinessUserRole as _BusinessUserRole, Expense as _Expense, Invoice as _Invoice, InvoiceStatus as _InvoiceStatus, StripeSessionStatus as _StripeSessionStatus, Time as _Time, UserProfile as _UserProfile, UserRole as _UserRole } from "./declarations/backend.did.d.ts";
+import type { BusinessRole as _BusinessRole, BusinessUserRole as _BusinessUserRole, ClientTenant as _ClientTenant, StripeSessionStatus as _StripeSessionStatus, TenantStatus as _TenantStatus, Time as _Time, UserProfile as _UserProfile, UserRole as _UserRole } from "./declarations/backend.did.d.ts";
 export class Backend implements backendInterface {
     constructor(private actor: ActorSubclass<_SERVICE>, private _uploadFile: (file: ExternalBlob) => Promise<Uint8Array>, private _downloadFile: (file: Uint8Array) => Promise<ExternalBlob>, private processError?: (error: unknown) => never){}
     async _initializeAccessControlWithSecret(arg0: string): Promise<void> {
@@ -290,20 +233,6 @@ export class Backend implements backendInterface {
             }
         } else {
             const result = await this.actor._initializeAccessControlWithSecret(arg0);
-            return result;
-        }
-    }
-    async addPaymentToInvoice(arg0: bigint, arg1: bigint, arg2: Time, arg3: string, arg4: string): Promise<bigint> {
-        if (this.processError) {
-            try {
-                const result = await this.actor.addPaymentToInvoice(arg0, arg1, arg2, arg3, arg4);
-                return result;
-            } catch (e) {
-                this.processError(e);
-                throw new Error("unreachable");
-            }
-        } else {
-            const result = await this.actor.addPaymentToInvoice(arg0, arg1, arg2, arg3, arg4);
             return result;
         }
     }
@@ -349,185 +278,17 @@ export class Backend implements backendInterface {
             return result;
         }
     }
-    async createCustomer(arg0: bigint, arg1: string, arg2: string, arg3: string, arg4: string, arg5: string): Promise<bigint> {
+    async createRazorpayOrder(arg0: bigint, arg1: string, arg2: string): Promise<string> {
         if (this.processError) {
             try {
-                const result = await this.actor.createCustomer(arg0, arg1, arg2, arg3, arg4, arg5);
+                const result = await this.actor.createRazorpayOrder(arg0, arg1, arg2);
                 return result;
             } catch (e) {
                 this.processError(e);
                 throw new Error("unreachable");
             }
         } else {
-            const result = await this.actor.createCustomer(arg0, arg1, arg2, arg3, arg4, arg5);
-            return result;
-        }
-    }
-    async createExpense(arg0: bigint, arg1: bigint | null, arg2: string, arg3: bigint, arg4: bigint, arg5: Time, arg6: string): Promise<bigint> {
-        if (this.processError) {
-            try {
-                const result = await this.actor.createExpense(arg0, to_candid_opt_n3(this._uploadFile, this._downloadFile, arg1), arg2, arg3, arg4, arg5, arg6);
-                return result;
-            } catch (e) {
-                this.processError(e);
-                throw new Error("unreachable");
-            }
-        } else {
-            const result = await this.actor.createExpense(arg0, to_candid_opt_n3(this._uploadFile, this._downloadFile, arg1), arg2, arg3, arg4, arg5, arg6);
-            return result;
-        }
-    }
-    async createInvoice(arg0: bigint, arg1: bigint, arg2: string, arg3: Time, arg4: Time, arg5: Array<[bigint, string, bigint, bigint, bigint]>): Promise<bigint> {
-        if (this.processError) {
-            try {
-                const result = await this.actor.createInvoice(arg0, arg1, arg2, arg3, arg4, arg5);
-                return result;
-            } catch (e) {
-                this.processError(e);
-                throw new Error("unreachable");
-            }
-        } else {
-            const result = await this.actor.createInvoice(arg0, arg1, arg2, arg3, arg4, arg5);
-            return result;
-        }
-    }
-    async createProduct(arg0: bigint, arg1: string, arg2: string, arg3: bigint, arg4: bigint, arg5: bigint, arg6: bigint): Promise<bigint> {
-        if (this.processError) {
-            try {
-                const result = await this.actor.createProduct(arg0, arg1, arg2, arg3, arg4, arg5, arg6);
-                return result;
-            } catch (e) {
-                this.processError(e);
-                throw new Error("unreachable");
-            }
-        } else {
-            const result = await this.actor.createProduct(arg0, arg1, arg2, arg3, arg4, arg5, arg6);
-            return result;
-        }
-    }
-    async createVendor(arg0: bigint, arg1: string, arg2: string, arg3: string, arg4: string, arg5: string): Promise<bigint> {
-        if (this.processError) {
-            try {
-                const result = await this.actor.createVendor(arg0, arg1, arg2, arg3, arg4, arg5);
-                return result;
-            } catch (e) {
-                this.processError(e);
-                throw new Error("unreachable");
-            }
-        } else {
-            const result = await this.actor.createVendor(arg0, arg1, arg2, arg3, arg4, arg5);
-            return result;
-        }
-    }
-    async deleteBusiness(arg0: bigint): Promise<void> {
-        if (this.processError) {
-            try {
-                const result = await this.actor.deleteBusiness(arg0);
-                return result;
-            } catch (e) {
-                this.processError(e);
-                throw new Error("unreachable");
-            }
-        } else {
-            const result = await this.actor.deleteBusiness(arg0);
-            return result;
-        }
-    }
-    async deleteCustomer(arg0: bigint): Promise<void> {
-        if (this.processError) {
-            try {
-                const result = await this.actor.deleteCustomer(arg0);
-                return result;
-            } catch (e) {
-                this.processError(e);
-                throw new Error("unreachable");
-            }
-        } else {
-            const result = await this.actor.deleteCustomer(arg0);
-            return result;
-        }
-    }
-    async deleteExpense(arg0: bigint): Promise<void> {
-        if (this.processError) {
-            try {
-                const result = await this.actor.deleteExpense(arg0);
-                return result;
-            } catch (e) {
-                this.processError(e);
-                throw new Error("unreachable");
-            }
-        } else {
-            const result = await this.actor.deleteExpense(arg0);
-            return result;
-        }
-    }
-    async deleteInvoice(arg0: bigint): Promise<void> {
-        if (this.processError) {
-            try {
-                const result = await this.actor.deleteInvoice(arg0);
-                return result;
-            } catch (e) {
-                this.processError(e);
-                throw new Error("unreachable");
-            }
-        } else {
-            const result = await this.actor.deleteInvoice(arg0);
-            return result;
-        }
-    }
-    async deleteProduct(arg0: bigint): Promise<void> {
-        if (this.processError) {
-            try {
-                const result = await this.actor.deleteProduct(arg0);
-                return result;
-            } catch (e) {
-                this.processError(e);
-                throw new Error("unreachable");
-            }
-        } else {
-            const result = await this.actor.deleteProduct(arg0);
-            return result;
-        }
-    }
-    async deleteVendor(arg0: bigint): Promise<void> {
-        if (this.processError) {
-            try {
-                const result = await this.actor.deleteVendor(arg0);
-                return result;
-            } catch (e) {
-                this.processError(e);
-                throw new Error("unreachable");
-            }
-        } else {
-            const result = await this.actor.deleteVendor(arg0);
-            return result;
-        }
-    }
-    async generateGstReport(arg0: bigint, arg1: Time, arg2: Time): Promise<bigint> {
-        if (this.processError) {
-            try {
-                const result = await this.actor.generateGstReport(arg0, arg1, arg2);
-                return result;
-            } catch (e) {
-                this.processError(e);
-                throw new Error("unreachable");
-            }
-        } else {
-            const result = await this.actor.generateGstReport(arg0, arg1, arg2);
-            return result;
-        }
-    }
-    async getBusiness(arg0: bigint): Promise<Business> {
-        if (this.processError) {
-            try {
-                const result = await this.actor.getBusiness(arg0);
-                return result;
-            } catch (e) {
-                this.processError(e);
-                throw new Error("unreachable");
-            }
-        } else {
-            const result = await this.actor.getBusiness(arg0);
+            const result = await this.actor.createRazorpayOrder(arg0, arg1, arg2);
             return result;
         }
     }
@@ -535,195 +296,130 @@ export class Backend implements backendInterface {
         if (this.processError) {
             try {
                 const result = await this.actor.getBusinessUsers(arg0);
-                return from_candid_vec_n4(this._uploadFile, this._downloadFile, result);
+                return from_candid_vec_n3(this._uploadFile, this._downloadFile, result);
             } catch (e) {
                 this.processError(e);
                 throw new Error("unreachable");
             }
         } else {
             const result = await this.actor.getBusinessUsers(arg0);
-            return from_candid_vec_n4(this._uploadFile, this._downloadFile, result);
+            return from_candid_vec_n3(this._uploadFile, this._downloadFile, result);
         }
     }
     async getCallerUserProfile(): Promise<UserProfile | null> {
         if (this.processError) {
             try {
                 const result = await this.actor.getCallerUserProfile();
-                return from_candid_opt_n9(this._uploadFile, this._downloadFile, result);
+                return from_candid_opt_n8(this._uploadFile, this._downloadFile, result);
             } catch (e) {
                 this.processError(e);
                 throw new Error("unreachable");
             }
         } else {
             const result = await this.actor.getCallerUserProfile();
-            return from_candid_opt_n9(this._uploadFile, this._downloadFile, result);
+            return from_candid_opt_n8(this._uploadFile, this._downloadFile, result);
         }
     }
     async getCallerUserRole(): Promise<UserRole> {
         if (this.processError) {
             try {
                 const result = await this.actor.getCallerUserRole();
-                return from_candid_UserRole_n10(this._uploadFile, this._downloadFile, result);
+                return from_candid_UserRole_n9(this._uploadFile, this._downloadFile, result);
             } catch (e) {
                 this.processError(e);
                 throw new Error("unreachable");
             }
         } else {
             const result = await this.actor.getCallerUserRole();
-            return from_candid_UserRole_n10(this._uploadFile, this._downloadFile, result);
+            return from_candid_UserRole_n9(this._uploadFile, this._downloadFile, result);
         }
     }
-    async getCustomer(arg0: bigint): Promise<Customer> {
+    async getClientTenants(): Promise<Array<ClientTenant>> {
         if (this.processError) {
             try {
-                const result = await this.actor.getCustomer(arg0);
-                return result;
+                const result = await this.actor.getClientTenants();
+                return from_candid_vec_n11(this._uploadFile, this._downloadFile, result);
             } catch (e) {
                 this.processError(e);
                 throw new Error("unreachable");
             }
         } else {
-            const result = await this.actor.getCustomer(arg0);
-            return result;
-        }
-    }
-    async getCustomers(arg0: bigint): Promise<Array<Customer>> {
-        if (this.processError) {
-            try {
-                const result = await this.actor.getCustomers(arg0);
-                return result;
-            } catch (e) {
-                this.processError(e);
-                throw new Error("unreachable");
-            }
-        } else {
-            const result = await this.actor.getCustomers(arg0);
-            return result;
-        }
-    }
-    async getExpense(arg0: bigint): Promise<Expense> {
-        if (this.processError) {
-            try {
-                const result = await this.actor.getExpense(arg0);
-                return from_candid_Expense_n12(this._uploadFile, this._downloadFile, result);
-            } catch (e) {
-                this.processError(e);
-                throw new Error("unreachable");
-            }
-        } else {
-            const result = await this.actor.getExpense(arg0);
-            return from_candid_Expense_n12(this._uploadFile, this._downloadFile, result);
-        }
-    }
-    async getExpenses(arg0: bigint): Promise<Array<Expense>> {
-        if (this.processError) {
-            try {
-                const result = await this.actor.getExpenses(arg0);
-                return from_candid_vec_n15(this._uploadFile, this._downloadFile, result);
-            } catch (e) {
-                this.processError(e);
-                throw new Error("unreachable");
-            }
-        } else {
-            const result = await this.actor.getExpenses(arg0);
-            return from_candid_vec_n15(this._uploadFile, this._downloadFile, result);
-        }
-    }
-    async getInvoice(arg0: bigint): Promise<Invoice> {
-        if (this.processError) {
-            try {
-                const result = await this.actor.getInvoice(arg0);
-                return from_candid_Invoice_n16(this._uploadFile, this._downloadFile, result);
-            } catch (e) {
-                this.processError(e);
-                throw new Error("unreachable");
-            }
-        } else {
-            const result = await this.actor.getInvoice(arg0);
-            return from_candid_Invoice_n16(this._uploadFile, this._downloadFile, result);
-        }
-    }
-    async getInvoices(arg0: bigint): Promise<Array<Invoice>> {
-        if (this.processError) {
-            try {
-                const result = await this.actor.getInvoices(arg0);
-                return from_candid_vec_n20(this._uploadFile, this._downloadFile, result);
-            } catch (e) {
-                this.processError(e);
-                throw new Error("unreachable");
-            }
-        } else {
-            const result = await this.actor.getInvoices(arg0);
-            return from_candid_vec_n20(this._uploadFile, this._downloadFile, result);
+            const result = await this.actor.getClientTenants();
+            return from_candid_vec_n11(this._uploadFile, this._downloadFile, result);
         }
     }
     async getMyBusinessRole(arg0: bigint): Promise<BusinessRole | null> {
         if (this.processError) {
             try {
                 const result = await this.actor.getMyBusinessRole(arg0);
-                return from_candid_opt_n21(this._uploadFile, this._downloadFile, result);
+                return from_candid_opt_n17(this._uploadFile, this._downloadFile, result);
             } catch (e) {
                 this.processError(e);
                 throw new Error("unreachable");
             }
         } else {
             const result = await this.actor.getMyBusinessRole(arg0);
-            return from_candid_opt_n21(this._uploadFile, this._downloadFile, result);
+            return from_candid_opt_n17(this._uploadFile, this._downloadFile, result);
         }
     }
-    async getMyBusinesses(): Promise<Array<Business>> {
+    async getMyTenant(): Promise<ClientTenant | null> {
         if (this.processError) {
             try {
-                const result = await this.actor.getMyBusinesses();
+                const result = await this.actor.getMyTenant();
+                return from_candid_opt_n18(this._uploadFile, this._downloadFile, result);
+            } catch (e) {
+                this.processError(e);
+                throw new Error("unreachable");
+            }
+        } else {
+            const result = await this.actor.getMyTenant();
+            return from_candid_opt_n18(this._uploadFile, this._downloadFile, result);
+        }
+    }
+    async getPaymentRecords(): Promise<Array<PaymentRecord>> {
+        if (this.processError) {
+            try {
+                const result = await this.actor.getPaymentRecords();
                 return result;
             } catch (e) {
                 this.processError(e);
                 throw new Error("unreachable");
             }
         } else {
-            const result = await this.actor.getMyBusinesses();
+            const result = await this.actor.getPaymentRecords();
             return result;
         }
     }
-    async getOverdueInvoices(arg0: bigint): Promise<Array<Invoice>> {
+    async getPaymentSummary(): Promise<{
+        expiringIn30Days: bigint;
+        suspendedAccounts: bigint;
+        totalRevenue: bigint;
+        activeSubscriptions: bigint;
+    }> {
         if (this.processError) {
             try {
-                const result = await this.actor.getOverdueInvoices(arg0);
-                return from_candid_vec_n20(this._uploadFile, this._downloadFile, result);
-            } catch (e) {
-                this.processError(e);
-                throw new Error("unreachable");
-            }
-        } else {
-            const result = await this.actor.getOverdueInvoices(arg0);
-            return from_candid_vec_n20(this._uploadFile, this._downloadFile, result);
-        }
-    }
-    async getProduct(arg0: bigint): Promise<Product> {
-        if (this.processError) {
-            try {
-                const result = await this.actor.getProduct(arg0);
+                const result = await this.actor.getPaymentSummary();
                 return result;
             } catch (e) {
                 this.processError(e);
                 throw new Error("unreachable");
             }
         } else {
-            const result = await this.actor.getProduct(arg0);
+            const result = await this.actor.getPaymentSummary();
             return result;
         }
     }
-    async getProducts(arg0: bigint): Promise<Array<Product>> {
+    async getRazorpayKeyId(): Promise<string> {
         if (this.processError) {
             try {
-                const result = await this.actor.getProducts(arg0);
+                const result = await this.actor.getRazorpayKeyId();
                 return result;
             } catch (e) {
                 this.processError(e);
                 throw new Error("unreachable");
             }
         } else {
-            const result = await this.actor.getProducts(arg0);
+            const result = await this.actor.getRazorpayKeyId();
             return result;
         }
     }
@@ -731,69 +427,41 @@ export class Backend implements backendInterface {
         if (this.processError) {
             try {
                 const result = await this.actor.getStripeSessionStatus(arg0);
-                return from_candid_StripeSessionStatus_n22(this._uploadFile, this._downloadFile, result);
+                return from_candid_StripeSessionStatus_n19(this._uploadFile, this._downloadFile, result);
             } catch (e) {
                 this.processError(e);
                 throw new Error("unreachable");
             }
         } else {
             const result = await this.actor.getStripeSessionStatus(arg0);
-            return from_candid_StripeSessionStatus_n22(this._uploadFile, this._downloadFile, result);
+            return from_candid_StripeSessionStatus_n19(this._uploadFile, this._downloadFile, result);
         }
     }
     async getUserProfile(arg0: Principal): Promise<UserProfile | null> {
         if (this.processError) {
             try {
                 const result = await this.actor.getUserProfile(arg0);
-                return from_candid_opt_n9(this._uploadFile, this._downloadFile, result);
+                return from_candid_opt_n8(this._uploadFile, this._downloadFile, result);
             } catch (e) {
                 this.processError(e);
                 throw new Error("unreachable");
             }
         } else {
             const result = await this.actor.getUserProfile(arg0);
-            return from_candid_opt_n9(this._uploadFile, this._downloadFile, result);
-        }
-    }
-    async getVendor(arg0: bigint): Promise<Vendor> {
-        if (this.processError) {
-            try {
-                const result = await this.actor.getVendor(arg0);
-                return result;
-            } catch (e) {
-                this.processError(e);
-                throw new Error("unreachable");
-            }
-        } else {
-            const result = await this.actor.getVendor(arg0);
-            return result;
-        }
-    }
-    async getVendors(arg0: bigint): Promise<Array<Vendor>> {
-        if (this.processError) {
-            try {
-                const result = await this.actor.getVendors(arg0);
-                return result;
-            } catch (e) {
-                this.processError(e);
-                throw new Error("unreachable");
-            }
-        } else {
-            const result = await this.actor.getVendors(arg0);
-            return result;
+            return from_candid_opt_n8(this._uploadFile, this._downloadFile, result);
         }
     }
     async inviteUserToBusinessRole(arg0: bigint, arg1: Principal, arg2: BusinessRole): Promise<bigint> {
         if (this.processError) {
             try {
-                const result = await this.actor.inviteUserToBusinessRole(arg0, arg1, to_candid_BusinessRole_n26(this._uploadFile, this._downloadFile, arg2));
+                const result = await this.actor.inviteUserToBusinessRole(arg0, arg1, to_candid_BusinessRole_n23(this._uploadFile, this._downloadFile, arg2));
                 return result;
             } catch (e) {
                 this.processError(e);
                 throw new Error("unreachable");
             }
         } else {
-            const result = await this.actor.inviteUserToBusinessRole(arg0, arg1, to_candid_BusinessRole_n26(this._uploadFile, this._downloadFile, arg2));
+            const result = await this.actor.inviteUserToBusinessRole(arg0, arg1, to_candid_BusinessRole_n23(this._uploadFile, this._downloadFile, arg2));
             return result;
         }
     }
@@ -811,6 +479,20 @@ export class Backend implements backendInterface {
             return result;
         }
     }
+    async isRazorpayConfigured(): Promise<boolean> {
+        if (this.processError) {
+            try {
+                const result = await this.actor.isRazorpayConfigured();
+                return result;
+            } catch (e) {
+                this.processError(e);
+                throw new Error("unreachable");
+            }
+        } else {
+            const result = await this.actor.isRazorpayConfigured();
+            return result;
+        }
+    }
     async isStripeConfigured(): Promise<boolean> {
         if (this.processError) {
             try {
@@ -822,6 +504,48 @@ export class Backend implements backendInterface {
             }
         } else {
             const result = await this.actor.isStripeConfigured();
+            return result;
+        }
+    }
+    async provisionClientTenant(arg0: Principal, arg1: string, arg2: string, arg3: string, arg4: bigint): Promise<string> {
+        if (this.processError) {
+            try {
+                const result = await this.actor.provisionClientTenant(arg0, arg1, arg2, arg3, arg4);
+                return result;
+            } catch (e) {
+                this.processError(e);
+                throw new Error("unreachable");
+            }
+        } else {
+            const result = await this.actor.provisionClientTenant(arg0, arg1, arg2, arg3, arg4);
+            return result;
+        }
+    }
+    async reactivateTenant(arg0: string): Promise<void> {
+        if (this.processError) {
+            try {
+                const result = await this.actor.reactivateTenant(arg0);
+                return result;
+            } catch (e) {
+                this.processError(e);
+                throw new Error("unreachable");
+            }
+        } else {
+            const result = await this.actor.reactivateTenant(arg0);
+            return result;
+        }
+    }
+    async recordPayment(arg0: string, arg1: Principal, arg2: string, arg3: string, arg4: bigint, arg5: string): Promise<void> {
+        if (this.processError) {
+            try {
+                const result = await this.actor.recordPayment(arg0, arg1, arg2, arg3, arg4, arg5);
+                return result;
+            } catch (e) {
+                this.processError(e);
+                throw new Error("unreachable");
+            }
+        } else {
+            const result = await this.actor.recordPayment(arg0, arg1, arg2, arg3, arg4, arg5);
             return result;
         }
     }
@@ -853,6 +577,20 @@ export class Backend implements backendInterface {
             return result;
         }
     }
+    async setRazorpayConfiguration(arg0: string, arg1: string): Promise<void> {
+        if (this.processError) {
+            try {
+                const result = await this.actor.setRazorpayConfiguration(arg0, arg1);
+                return result;
+            } catch (e) {
+                this.processError(e);
+                throw new Error("unreachable");
+            }
+        } else {
+            const result = await this.actor.setRazorpayConfiguration(arg0, arg1);
+            return result;
+        }
+    }
     async setStripeConfiguration(arg0: StripeConfiguration): Promise<void> {
         if (this.processError) {
             try {
@@ -864,6 +602,20 @@ export class Backend implements backendInterface {
             }
         } else {
             const result = await this.actor.setStripeConfiguration(arg0);
+            return result;
+        }
+    }
+    async suspendTenant(arg0: string): Promise<void> {
+        if (this.processError) {
+            try {
+                const result = await this.actor.suspendTenant(arg0);
+                return result;
+            } catch (e) {
+                this.processError(e);
+                throw new Error("unreachable");
+            }
+        } else {
+            const result = await this.actor.suspendTenant(arg0);
             return result;
         }
     }
@@ -881,203 +633,94 @@ export class Backend implements backendInterface {
             return result;
         }
     }
-    async updateBusiness(arg0: bigint, arg1: string, arg2: string, arg3: string, arg4: string): Promise<void> {
+    async updateTenantSubscription(arg0: string, arg1: string, arg2: bigint): Promise<void> {
         if (this.processError) {
             try {
-                const result = await this.actor.updateBusiness(arg0, arg1, arg2, arg3, arg4);
+                const result = await this.actor.updateTenantSubscription(arg0, arg1, arg2);
                 return result;
             } catch (e) {
                 this.processError(e);
                 throw new Error("unreachable");
             }
         } else {
-            const result = await this.actor.updateBusiness(arg0, arg1, arg2, arg3, arg4);
-            return result;
-        }
-    }
-    async updateCustomer(arg0: bigint, arg1: string, arg2: string, arg3: string, arg4: string, arg5: string): Promise<void> {
-        if (this.processError) {
-            try {
-                const result = await this.actor.updateCustomer(arg0, arg1, arg2, arg3, arg4, arg5);
-                return result;
-            } catch (e) {
-                this.processError(e);
-                throw new Error("unreachable");
-            }
-        } else {
-            const result = await this.actor.updateCustomer(arg0, arg1, arg2, arg3, arg4, arg5);
-            return result;
-        }
-    }
-    async updateExpense(arg0: bigint, arg1: string, arg2: bigint, arg3: bigint, arg4: Time, arg5: string): Promise<void> {
-        if (this.processError) {
-            try {
-                const result = await this.actor.updateExpense(arg0, arg1, arg2, arg3, arg4, arg5);
-                return result;
-            } catch (e) {
-                this.processError(e);
-                throw new Error("unreachable");
-            }
-        } else {
-            const result = await this.actor.updateExpense(arg0, arg1, arg2, arg3, arg4, arg5);
-            return result;
-        }
-    }
-    async updateInvoiceStatus(arg0: bigint, arg1: InvoiceStatus): Promise<void> {
-        if (this.processError) {
-            try {
-                const result = await this.actor.updateInvoiceStatus(arg0, to_candid_InvoiceStatus_n28(this._uploadFile, this._downloadFile, arg1));
-                return result;
-            } catch (e) {
-                this.processError(e);
-                throw new Error("unreachable");
-            }
-        } else {
-            const result = await this.actor.updateInvoiceStatus(arg0, to_candid_InvoiceStatus_n28(this._uploadFile, this._downloadFile, arg1));
-            return result;
-        }
-    }
-    async updateProduct(arg0: bigint, arg1: string, arg2: string, arg3: bigint, arg4: bigint, arg5: bigint, arg6: bigint): Promise<void> {
-        if (this.processError) {
-            try {
-                const result = await this.actor.updateProduct(arg0, arg1, arg2, arg3, arg4, arg5, arg6);
-                return result;
-            } catch (e) {
-                this.processError(e);
-                throw new Error("unreachable");
-            }
-        } else {
-            const result = await this.actor.updateProduct(arg0, arg1, arg2, arg3, arg4, arg5, arg6);
-            return result;
-        }
-    }
-    async updateVendor(arg0: bigint, arg1: string, arg2: string, arg3: string, arg4: string, arg5: string): Promise<void> {
-        if (this.processError) {
-            try {
-                const result = await this.actor.updateVendor(arg0, arg1, arg2, arg3, arg4, arg5);
-                return result;
-            } catch (e) {
-                this.processError(e);
-                throw new Error("unreachable");
-            }
-        } else {
-            const result = await this.actor.updateVendor(arg0, arg1, arg2, arg3, arg4, arg5);
+            const result = await this.actor.updateTenantSubscription(arg0, arg1, arg2);
             return result;
         }
     }
 }
-function from_candid_BusinessRole_n7(_uploadFile: (file: ExternalBlob) => Promise<Uint8Array>, _downloadFile: (file: Uint8Array) => Promise<ExternalBlob>, value: _BusinessRole): BusinessRole {
-    return from_candid_variant_n8(_uploadFile, _downloadFile, value);
+function from_candid_BusinessRole_n6(_uploadFile: (file: ExternalBlob) => Promise<Uint8Array>, _downloadFile: (file: Uint8Array) => Promise<ExternalBlob>, value: _BusinessRole): BusinessRole {
+    return from_candid_variant_n7(_uploadFile, _downloadFile, value);
 }
-function from_candid_BusinessUserRole_n5(_uploadFile: (file: ExternalBlob) => Promise<Uint8Array>, _downloadFile: (file: Uint8Array) => Promise<ExternalBlob>, value: _BusinessUserRole): BusinessUserRole {
-    return from_candid_record_n6(_uploadFile, _downloadFile, value);
+function from_candid_BusinessUserRole_n4(_uploadFile: (file: ExternalBlob) => Promise<Uint8Array>, _downloadFile: (file: Uint8Array) => Promise<ExternalBlob>, value: _BusinessUserRole): BusinessUserRole {
+    return from_candid_record_n5(_uploadFile, _downloadFile, value);
 }
-function from_candid_Expense_n12(_uploadFile: (file: ExternalBlob) => Promise<Uint8Array>, _downloadFile: (file: Uint8Array) => Promise<ExternalBlob>, value: _Expense): Expense {
+function from_candid_ClientTenant_n12(_uploadFile: (file: ExternalBlob) => Promise<Uint8Array>, _downloadFile: (file: Uint8Array) => Promise<ExternalBlob>, value: _ClientTenant): ClientTenant {
     return from_candid_record_n13(_uploadFile, _downloadFile, value);
 }
-function from_candid_InvoiceStatus_n18(_uploadFile: (file: ExternalBlob) => Promise<Uint8Array>, _downloadFile: (file: Uint8Array) => Promise<ExternalBlob>, value: _InvoiceStatus): InvoiceStatus {
-    return from_candid_variant_n19(_uploadFile, _downloadFile, value);
+function from_candid_StripeSessionStatus_n19(_uploadFile: (file: ExternalBlob) => Promise<Uint8Array>, _downloadFile: (file: Uint8Array) => Promise<ExternalBlob>, value: _StripeSessionStatus): StripeSessionStatus {
+    return from_candid_variant_n20(_uploadFile, _downloadFile, value);
 }
-function from_candid_Invoice_n16(_uploadFile: (file: ExternalBlob) => Promise<Uint8Array>, _downloadFile: (file: Uint8Array) => Promise<ExternalBlob>, value: _Invoice): Invoice {
-    return from_candid_record_n17(_uploadFile, _downloadFile, value);
+function from_candid_TenantStatus_n14(_uploadFile: (file: ExternalBlob) => Promise<Uint8Array>, _downloadFile: (file: Uint8Array) => Promise<ExternalBlob>, value: _TenantStatus): TenantStatus {
+    return from_candid_variant_n15(_uploadFile, _downloadFile, value);
 }
-function from_candid_StripeSessionStatus_n22(_uploadFile: (file: ExternalBlob) => Promise<Uint8Array>, _downloadFile: (file: Uint8Array) => Promise<ExternalBlob>, value: _StripeSessionStatus): StripeSessionStatus {
-    return from_candid_variant_n23(_uploadFile, _downloadFile, value);
+function from_candid_UserRole_n9(_uploadFile: (file: ExternalBlob) => Promise<Uint8Array>, _downloadFile: (file: Uint8Array) => Promise<ExternalBlob>, value: _UserRole): UserRole {
+    return from_candid_variant_n10(_uploadFile, _downloadFile, value);
 }
-function from_candid_UserRole_n10(_uploadFile: (file: ExternalBlob) => Promise<Uint8Array>, _downloadFile: (file: Uint8Array) => Promise<ExternalBlob>, value: _UserRole): UserRole {
-    return from_candid_variant_n11(_uploadFile, _downloadFile, value);
-}
-function from_candid_opt_n14(_uploadFile: (file: ExternalBlob) => Promise<Uint8Array>, _downloadFile: (file: Uint8Array) => Promise<ExternalBlob>, value: [] | [bigint]): bigint | null {
+function from_candid_opt_n16(_uploadFile: (file: ExternalBlob) => Promise<Uint8Array>, _downloadFile: (file: Uint8Array) => Promise<ExternalBlob>, value: [] | [bigint]): bigint | null {
     return value.length === 0 ? null : value[0];
 }
-function from_candid_opt_n21(_uploadFile: (file: ExternalBlob) => Promise<Uint8Array>, _downloadFile: (file: Uint8Array) => Promise<ExternalBlob>, value: [] | [_BusinessRole]): BusinessRole | null {
-    return value.length === 0 ? null : from_candid_BusinessRole_n7(_uploadFile, _downloadFile, value[0]);
+function from_candid_opt_n17(_uploadFile: (file: ExternalBlob) => Promise<Uint8Array>, _downloadFile: (file: Uint8Array) => Promise<ExternalBlob>, value: [] | [_BusinessRole]): BusinessRole | null {
+    return value.length === 0 ? null : from_candid_BusinessRole_n6(_uploadFile, _downloadFile, value[0]);
 }
-function from_candid_opt_n25(_uploadFile: (file: ExternalBlob) => Promise<Uint8Array>, _downloadFile: (file: Uint8Array) => Promise<ExternalBlob>, value: [] | [string]): string | null {
+function from_candid_opt_n18(_uploadFile: (file: ExternalBlob) => Promise<Uint8Array>, _downloadFile: (file: Uint8Array) => Promise<ExternalBlob>, value: [] | [_ClientTenant]): ClientTenant | null {
+    return value.length === 0 ? null : from_candid_ClientTenant_n12(_uploadFile, _downloadFile, value[0]);
+}
+function from_candid_opt_n22(_uploadFile: (file: ExternalBlob) => Promise<Uint8Array>, _downloadFile: (file: Uint8Array) => Promise<ExternalBlob>, value: [] | [string]): string | null {
     return value.length === 0 ? null : value[0];
 }
-function from_candid_opt_n9(_uploadFile: (file: ExternalBlob) => Promise<Uint8Array>, _downloadFile: (file: Uint8Array) => Promise<ExternalBlob>, value: [] | [_UserProfile]): UserProfile | null {
+function from_candid_opt_n8(_uploadFile: (file: ExternalBlob) => Promise<Uint8Array>, _downloadFile: (file: Uint8Array) => Promise<ExternalBlob>, value: [] | [_UserProfile]): UserProfile | null {
     return value.length === 0 ? null : value[0];
 }
 function from_candid_record_n13(_uploadFile: (file: ExternalBlob) => Promise<Uint8Array>, _downloadFile: (file: Uint8Array) => Promise<ExternalBlob>, value: {
     id: bigint;
-    expenseDate: _Time;
-    businessId: bigint;
-    createdAt: _Time;
-    description: string;
-    gstAmount: bigint;
-    vendorId: [] | [bigint];
-    category: string;
-    amount: bigint;
+    status: _TenantStatus;
+    subscriptionEndDate: _Time;
+    subscriptionPlan: string;
+    businessName: string;
+    tenantId: string;
+    clientPrincipal: Principal;
+    crmLeadId: [] | [bigint];
+    provisionedAt: _Time;
+    subscriptionStartDate: _Time;
+    contactEmail: string;
 }): {
     id: bigint;
-    expenseDate: Time;
-    businessId: bigint;
-    createdAt: Time;
-    description: string;
-    gstAmount: bigint;
-    vendorId?: bigint;
-    category: string;
-    amount: bigint;
+    status: TenantStatus;
+    subscriptionEndDate: Time;
+    subscriptionPlan: string;
+    businessName: string;
+    tenantId: string;
+    clientPrincipal: Principal;
+    crmLeadId?: bigint;
+    provisionedAt: Time;
+    subscriptionStartDate: Time;
+    contactEmail: string;
 } {
     return {
         id: value.id,
-        expenseDate: value.expenseDate,
-        businessId: value.businessId,
-        createdAt: value.createdAt,
-        description: value.description,
-        gstAmount: value.gstAmount,
-        vendorId: record_opt_to_undefined(from_candid_opt_n14(_uploadFile, _downloadFile, value.vendorId)),
-        category: value.category,
-        amount: value.amount
+        status: from_candid_TenantStatus_n14(_uploadFile, _downloadFile, value.status),
+        subscriptionEndDate: value.subscriptionEndDate,
+        subscriptionPlan: value.subscriptionPlan,
+        businessName: value.businessName,
+        tenantId: value.tenantId,
+        clientPrincipal: value.clientPrincipal,
+        crmLeadId: record_opt_to_undefined(from_candid_opt_n16(_uploadFile, _downloadFile, value.crmLeadId)),
+        provisionedAt: value.provisionedAt,
+        subscriptionStartDate: value.subscriptionStartDate,
+        contactEmail: value.contactEmail
     };
 }
-function from_candid_record_n17(_uploadFile: (file: ExternalBlob) => Promise<Uint8Array>, _downloadFile: (file: Uint8Array) => Promise<ExternalBlob>, value: {
-    id: bigint;
-    status: _InvoiceStatus;
-    businessId: bigint;
-    cgst: bigint;
-    igst: bigint;
-    createdAt: _Time;
-    sgst: bigint;
-    dueDate: _Time;
-    invoiceDate: _Time;
-    invoiceNumber: string;
-    totalAmount: bigint;
-    customerId: bigint;
-    subtotal: bigint;
-}): {
-    id: bigint;
-    status: InvoiceStatus;
-    businessId: bigint;
-    cgst: bigint;
-    igst: bigint;
-    createdAt: Time;
-    sgst: bigint;
-    dueDate: Time;
-    invoiceDate: Time;
-    invoiceNumber: string;
-    totalAmount: bigint;
-    customerId: bigint;
-    subtotal: bigint;
-} {
-    return {
-        id: value.id,
-        status: from_candid_InvoiceStatus_n18(_uploadFile, _downloadFile, value.status),
-        businessId: value.businessId,
-        cgst: value.cgst,
-        igst: value.igst,
-        createdAt: value.createdAt,
-        sgst: value.sgst,
-        dueDate: value.dueDate,
-        invoiceDate: value.invoiceDate,
-        invoiceNumber: value.invoiceNumber,
-        totalAmount: value.totalAmount,
-        customerId: value.customerId,
-        subtotal: value.subtotal
-    };
-}
-function from_candid_record_n24(_uploadFile: (file: ExternalBlob) => Promise<Uint8Array>, _downloadFile: (file: Uint8Array) => Promise<ExternalBlob>, value: {
+function from_candid_record_n21(_uploadFile: (file: ExternalBlob) => Promise<Uint8Array>, _downloadFile: (file: Uint8Array) => Promise<ExternalBlob>, value: {
     userPrincipal: [] | [string];
     response: string;
 }): {
@@ -1085,11 +728,11 @@ function from_candid_record_n24(_uploadFile: (file: ExternalBlob) => Promise<Uin
     response: string;
 } {
     return {
-        userPrincipal: record_opt_to_undefined(from_candid_opt_n25(_uploadFile, _downloadFile, value.userPrincipal)),
+        userPrincipal: record_opt_to_undefined(from_candid_opt_n22(_uploadFile, _downloadFile, value.userPrincipal)),
         response: value.response
     };
 }
-function from_candid_record_n6(_uploadFile: (file: ExternalBlob) => Promise<Uint8Array>, _downloadFile: (file: Uint8Array) => Promise<ExternalBlob>, value: {
+function from_candid_record_n5(_uploadFile: (file: ExternalBlob) => Promise<Uint8Array>, _downloadFile: (file: Uint8Array) => Promise<ExternalBlob>, value: {
     id: bigint;
     businessId: bigint;
     createdAt: _Time;
@@ -1108,12 +751,12 @@ function from_candid_record_n6(_uploadFile: (file: ExternalBlob) => Promise<Uint
         id: value.id,
         businessId: value.businessId,
         createdAt: value.createdAt,
-        role: from_candid_BusinessRole_n7(_uploadFile, _downloadFile, value.role),
+        role: from_candid_BusinessRole_n6(_uploadFile, _downloadFile, value.role),
         invitedBy: value.invitedBy,
         userPrincipal: value.userPrincipal
     };
 }
-function from_candid_variant_n11(_uploadFile: (file: ExternalBlob) => Promise<Uint8Array>, _downloadFile: (file: Uint8Array) => Promise<ExternalBlob>, value: {
+function from_candid_variant_n10(_uploadFile: (file: ExternalBlob) => Promise<Uint8Array>, _downloadFile: (file: Uint8Array) => Promise<ExternalBlob>, value: {
     admin: null;
 } | {
     user: null;
@@ -1122,18 +765,16 @@ function from_candid_variant_n11(_uploadFile: (file: ExternalBlob) => Promise<Ui
 }): UserRole {
     return "admin" in value ? UserRole.admin : "user" in value ? UserRole.user : "guest" in value ? UserRole.guest : value;
 }
-function from_candid_variant_n19(_uploadFile: (file: ExternalBlob) => Promise<Uint8Array>, _downloadFile: (file: Uint8Array) => Promise<ExternalBlob>, value: {
-    paid: null;
+function from_candid_variant_n15(_uploadFile: (file: ExternalBlob) => Promise<Uint8Array>, _downloadFile: (file: Uint8Array) => Promise<ExternalBlob>, value: {
+    active: null;
 } | {
-    sent: null;
+    expired: null;
 } | {
-    overdue: null;
-} | {
-    draft: null;
-}): InvoiceStatus {
-    return "paid" in value ? InvoiceStatus.paid : "sent" in value ? InvoiceStatus.sent : "overdue" in value ? InvoiceStatus.overdue : "draft" in value ? InvoiceStatus.draft : value;
+    suspended: null;
+}): TenantStatus {
+    return "active" in value ? TenantStatus.active : "expired" in value ? TenantStatus.expired : "suspended" in value ? TenantStatus.suspended : value;
 }
-function from_candid_variant_n23(_uploadFile: (file: ExternalBlob) => Promise<Uint8Array>, _downloadFile: (file: Uint8Array) => Promise<ExternalBlob>, value: {
+function from_candid_variant_n20(_uploadFile: (file: ExternalBlob) => Promise<Uint8Array>, _downloadFile: (file: Uint8Array) => Promise<ExternalBlob>, value: {
     completed: {
         userPrincipal: [] | [string];
         response: string;
@@ -1156,13 +797,13 @@ function from_candid_variant_n23(_uploadFile: (file: ExternalBlob) => Promise<Ui
 } {
     return "completed" in value ? {
         __kind__: "completed",
-        completed: from_candid_record_n24(_uploadFile, _downloadFile, value.completed)
+        completed: from_candid_record_n21(_uploadFile, _downloadFile, value.completed)
     } : "failed" in value ? {
         __kind__: "failed",
         failed: value.failed
     } : value;
 }
-function from_candid_variant_n8(_uploadFile: (file: ExternalBlob) => Promise<Uint8Array>, _downloadFile: (file: Uint8Array) => Promise<ExternalBlob>, value: {
+function from_candid_variant_n7(_uploadFile: (file: ExternalBlob) => Promise<Uint8Array>, _downloadFile: (file: Uint8Array) => Promise<ExternalBlob>, value: {
     ca: null;
 } | {
     accountant: null;
@@ -1171,26 +812,17 @@ function from_candid_variant_n8(_uploadFile: (file: ExternalBlob) => Promise<Uin
 }): BusinessRole {
     return "ca" in value ? BusinessRole.ca : "accountant" in value ? BusinessRole.accountant : "admin" in value ? BusinessRole.admin : value;
 }
-function from_candid_vec_n15(_uploadFile: (file: ExternalBlob) => Promise<Uint8Array>, _downloadFile: (file: Uint8Array) => Promise<ExternalBlob>, value: Array<_Expense>): Array<Expense> {
-    return value.map((x)=>from_candid_Expense_n12(_uploadFile, _downloadFile, x));
+function from_candid_vec_n11(_uploadFile: (file: ExternalBlob) => Promise<Uint8Array>, _downloadFile: (file: Uint8Array) => Promise<ExternalBlob>, value: Array<_ClientTenant>): Array<ClientTenant> {
+    return value.map((x)=>from_candid_ClientTenant_n12(_uploadFile, _downloadFile, x));
 }
-function from_candid_vec_n20(_uploadFile: (file: ExternalBlob) => Promise<Uint8Array>, _downloadFile: (file: Uint8Array) => Promise<ExternalBlob>, value: Array<_Invoice>): Array<Invoice> {
-    return value.map((x)=>from_candid_Invoice_n16(_uploadFile, _downloadFile, x));
+function from_candid_vec_n3(_uploadFile: (file: ExternalBlob) => Promise<Uint8Array>, _downloadFile: (file: Uint8Array) => Promise<ExternalBlob>, value: Array<_BusinessUserRole>): Array<BusinessUserRole> {
+    return value.map((x)=>from_candid_BusinessUserRole_n4(_uploadFile, _downloadFile, x));
 }
-function from_candid_vec_n4(_uploadFile: (file: ExternalBlob) => Promise<Uint8Array>, _downloadFile: (file: Uint8Array) => Promise<ExternalBlob>, value: Array<_BusinessUserRole>): Array<BusinessUserRole> {
-    return value.map((x)=>from_candid_BusinessUserRole_n5(_uploadFile, _downloadFile, x));
-}
-function to_candid_BusinessRole_n26(_uploadFile: (file: ExternalBlob) => Promise<Uint8Array>, _downloadFile: (file: Uint8Array) => Promise<ExternalBlob>, value: BusinessRole): _BusinessRole {
-    return to_candid_variant_n27(_uploadFile, _downloadFile, value);
-}
-function to_candid_InvoiceStatus_n28(_uploadFile: (file: ExternalBlob) => Promise<Uint8Array>, _downloadFile: (file: Uint8Array) => Promise<ExternalBlob>, value: InvoiceStatus): _InvoiceStatus {
-    return to_candid_variant_n29(_uploadFile, _downloadFile, value);
+function to_candid_BusinessRole_n23(_uploadFile: (file: ExternalBlob) => Promise<Uint8Array>, _downloadFile: (file: Uint8Array) => Promise<ExternalBlob>, value: BusinessRole): _BusinessRole {
+    return to_candid_variant_n24(_uploadFile, _downloadFile, value);
 }
 function to_candid_UserRole_n1(_uploadFile: (file: ExternalBlob) => Promise<Uint8Array>, _downloadFile: (file: Uint8Array) => Promise<ExternalBlob>, value: UserRole): _UserRole {
     return to_candid_variant_n2(_uploadFile, _downloadFile, value);
-}
-function to_candid_opt_n3(_uploadFile: (file: ExternalBlob) => Promise<Uint8Array>, _downloadFile: (file: Uint8Array) => Promise<ExternalBlob>, value: bigint | null): [] | [bigint] {
-    return value === null ? candid_none() : candid_some(value);
 }
 function to_candid_variant_n2(_uploadFile: (file: ExternalBlob) => Promise<Uint8Array>, _downloadFile: (file: Uint8Array) => Promise<ExternalBlob>, value: UserRole): {
     admin: null;
@@ -1207,7 +839,7 @@ function to_candid_variant_n2(_uploadFile: (file: ExternalBlob) => Promise<Uint8
         guest: null
     } : value;
 }
-function to_candid_variant_n27(_uploadFile: (file: ExternalBlob) => Promise<Uint8Array>, _downloadFile: (file: Uint8Array) => Promise<ExternalBlob>, value: BusinessRole): {
+function to_candid_variant_n24(_uploadFile: (file: ExternalBlob) => Promise<Uint8Array>, _downloadFile: (file: Uint8Array) => Promise<ExternalBlob>, value: BusinessRole): {
     ca: null;
 } | {
     accountant: null;
@@ -1220,25 +852,6 @@ function to_candid_variant_n27(_uploadFile: (file: ExternalBlob) => Promise<Uint
         accountant: null
     } : value == BusinessRole.admin ? {
         admin: null
-    } : value;
-}
-function to_candid_variant_n29(_uploadFile: (file: ExternalBlob) => Promise<Uint8Array>, _downloadFile: (file: Uint8Array) => Promise<ExternalBlob>, value: InvoiceStatus): {
-    paid: null;
-} | {
-    sent: null;
-} | {
-    overdue: null;
-} | {
-    draft: null;
-} {
-    return value == InvoiceStatus.paid ? {
-        paid: null
-    } : value == InvoiceStatus.sent ? {
-        sent: null
-    } : value == InvoiceStatus.overdue ? {
-        overdue: null
-    } : value == InvoiceStatus.draft ? {
-        draft: null
     } : value;
 }
 export interface CreateActorOptions {

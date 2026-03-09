@@ -1,63 +1,69 @@
-# LekhyaAI — Phase A: CRM, Activity Log, Notifications & Real-time Clock
+# LekhyaAI — Phase C
 
 ## Current State
 
-LekhyaAI is a fully-built India-first SaaS accounting web app with:
-- Marketing site at `/`
-- Accounting webapp at `/app` (Dashboard, Invoices, Customers, Vendors, Products, Expenses, Ledger, GST Reports, P&L, Balance Sheet, Bank Accounts, Petty Cash, Journal Entry, Tally Import, B2B Reconciliation, GST Filing Calendar)
-- AI Assistant (floating + full-page)
-- RBAC matrix (25+ modules, route-level guards)
-- SuperUser Settings at `/app/superuser-settings` (PIN: LEKHYA2024)
-- Onboarding Portal at `/app/onboard`
-- Stripe payment wired end-to-end
-- Demo page at `/app/demo`
-- Backend: ICP Motoko canister with Business, Customer, Vendor, Product, Invoice, Expense, Payment, GstReport, BankAccount, PettyCash, JournalEntry types
+The app has a full accounting platform with:
+- Motoko backend with Stripe payment integration, business/invoice/customer/vendor/product/expense/GST report/bank/petty cash/journal entry operations
+- Frontend with 32 pages including CRM, Activity Log, Security Monitor, Notifications, SuperUser Settings
+- Phase A: CRM (ENQ/FLW/ONB IDs), KYC fields, Enquiry Form, Bell notifications, Activity Gantt Log
+- Phase B: Security monitoring daemon, password-protected backup, renewal reminders (all frontend/localStorage)
+- Stripe payment wired with backend outcalls
+- All data is per-user via ICP principal, NOT true multi-tenant isolation
 
 ## Requested Changes (Diff)
 
 ### Add
 
-**1. SuperUser CRM with Dynamic IDs**
-- Backend: `CrmLead` type with fields: id (formatted ENQ-XXXX / FLW-XXXX / ONB-XXXX), name, email, phone, companyName, stage (enquiry | followup | onboarded), kycType (india | overseas), gstin, pan, cin, tinEin, incorporationCert, notes, subscriptionModules (array of selected modules), createdAt
-- Backend functions: createCrmLead, getCrmLeads, updateCrmLead, updateLeadStage, deleteCrmLead
-- Frontend: `/app/crm` page — Kanban/table view with Enquiry → Follow-up → Onboarded columns, editable KYC drawer, dynamic ID display
+1. **Razorpay Onboarding Flow**
+   - New `/app/razorpay-checkout` page with subscription plan selection (Basic/Professional/Enterprise with Indian pricing in INR)
+   - Razorpay-styled checkout UI (order summary, contact details, UPI/card/netbanking options shown as UI mock with real API call structure)
+   - Backend: `razorpayConfig` storage for key_id/key_secret, `createRazorpayOrder` function (HTTP outcall to Razorpay Orders API), `verifyRazorpayPayment` function
+   - SuperUser Settings: Razorpay Key ID + Secret input fields with save/status indicator
+   - On successful payment (simulated + real when key is live): auto-provision client tenant, send welcome email placeholder
 
-**2. Enquiry Form on Marketing Page**
-- Frontend addition: Enquiry form section on `/` (MarketingPage) with name, email, phone, company, subscription module dropdown (multi-select), message; submits to backend CRM as ENQ-XXXX lead
+2. **Client Tenant Provisioning**
+   - Backend: `ClientTenant` type with tenantId, clientPrincipal, businessName, subscriptionPlan, subscriptionStart, subscriptionEnd, status (active/suspended/expired), provisionedAt
+   - `provisionClientTenant` function — called post-payment, creates isolated tenant record
+   - `getClientTenants` — SuperUser only — returns all tenants
+   - `getMyTenant` — returns caller's tenant info
+   - `suspendTenant` / `reactivateTenant` — SuperUser only
+   - All business data read/write functions enhanced to check tenant status (active tenants only)
 
-**3. Real-time Clock**
-- Frontend: Fixed clock component in top-right corner of AppLayout header, shows time in user's local timezone (auto-detected), updates every second, formats as HH:MM:SS with date
+3. **SuperUser Payment Tracking Dashboard**
+   - New `/app/payment-tracking` page (SuperUser only)
+   - Table of all Razorpay payments: order ID, client name, plan, amount (INR), date, status
+   - Revenue summary cards: total revenue, active subscriptions, expiring in 30 days, suspended accounts
+   - Export to CSV functionality
+   - Payment records stored in backend: `PaymentRecord` type with orderId, clientPrincipal, plan, amountInr, status, createdAt
 
-**4. Bell Icon Notification System**
-- Backend: `Notification` type with id, fromRole (superuser | admin | user), toUserId (Principal), message, isRead, createdAt; functions: createNotification, getMyNotifications, markNotificationRead, markAllRead
-- Frontend: Bell icon in AppLayout header with unread badge count; dropdown panel showing notification list; SuperUser can compose and send notifications to any client; Client Admin can send to Client Users
-
-**5. Gantt Chart Activity Log (SuperUser only)**
-- Backend: `ActivityLog` type with id, userId (Principal), userName, action, module, timestamp, ipHash; function: logActivity (called on key user actions), getSuperUserActivityLogs (admin-only)
-- Frontend: `/app/activity-log` page (SuperUser only, PIN-protected) with Gantt-style timeline chart showing per-user module activity over time, filterable by date range and user; also shows raw log table beneath chart
-
-**6. Email Trigger Placeholders**
-- Backend: email trigger functions as stubs (sendWelcomeEmail, sendRenewalReminderEmail, sendBackupRequestEmail) — these accept parameters and log the attempt, returning a status; ready to wire once email component is enabled
-- Frontend: UI elements that call these stubs (e.g. "Send Welcome Email" button in CRM on onboarding, renewal reminder display in Activity Log)
+4. **Enhanced Multi-Tenancy UI**
+   - New `/app/tenant-management` page (SuperUser only)
+   - List all onboarded tenants with status badges (Active/Suspended/Expired/Expiring Soon)
+   - Quick actions: Suspend, Reactivate, View Details, Extend Subscription
+   - Tenant detail modal: subscription info, usage stats (invoice count, user count), KYC info from CRM
+   - Link CRM lead to tenant record (onboarded leads show tenant ID)
 
 ### Modify
 
-- **AppLayout header**: Add real-time clock (right side) and notification bell (next to clock); both visible on all `/app` pages
-- **MarketingPage**: Add enquiry form section before the footer
-- **SuperuserSettingsPage**: Add link/button to CRM page and Activity Log
-- **App.tsx**: Add routes for `/app/crm` and `/app/activity-log`
-- **Sidebar navigation**: Add "CRM" and "Activity Log" items (visible only in Developer Mode / SuperUser)
+- `SuperuserSettingsPage.tsx`: Add Razorpay section with Key ID/Secret fields and connection test button
+- `OnboardingPage.tsx` or new `ClientOnboardingFlow.tsx`: Update checkout to use Razorpay instead of Stripe
+- `PaymentCheckoutPage.tsx`: Swap to Razorpay flow with INR pricing
+- `App.tsx`: Add routes for `/app/razorpay-checkout`, `/app/payment-tracking`, `/app/tenant-management`
+- Sidebar navigation: Add "Payment Tracking" and "Tenant Management" under SuperUser section
+- CRM leads: Show linked tenant badge if lead has been onboarded
 
 ### Remove
 
-Nothing removed.
+- Nothing removed; Stripe remains as an alternative payment option
 
 ## Implementation Plan
 
-1. **Backend (Motoko)**: Add CrmLead, Notification, ActivityLog types; add CRUD functions for all three; add email stub functions; maintain counters for ENQ/FLW/ONB dynamic IDs
-2. **Frontend - Real-time Clock**: Small `RealtimeClock` component, placed in AppLayout header top-right
-3. **Frontend - Notification Bell**: `NotificationBell` component with bell icon, unread count badge, dropdown panel; SuperUser compose modal
-4. **Frontend - CRM Page**: `/app/crm` with kanban columns (Enquiry, Follow-up, Onboarded), KYC drawer for India/Overseas fields, module selection, lead cards with dynamic IDs
-5. **Frontend - Enquiry Form**: Add to MarketingPage as a dedicated section with form fields and module multi-select dropdown
-6. **Frontend - Activity Log / Gantt Page**: `/app/activity-log` with a horizontal Gantt-style timeline (using lightweight SVG or recharts) and raw log table, SuperUser-only access
-7. **Frontend - Routes + Navigation**: Wire new routes in App.tsx, add sidebar items gated by developer mode
+1. Generate Motoko backend with Razorpay HTTP outcall, ClientTenant type, PaymentRecord type, tenant CRUD, payment tracking
+2. Select `http-outcalls` component (already present but need to confirm)
+3. Build frontend:
+   a. Razorpay checkout page with INR plan cards and order creation flow
+   b. Payment tracking dashboard (SuperUser)
+   c. Tenant management page (SuperUser)
+   d. Update SuperUser Settings with Razorpay config section
+   e. Update sidebar to include new SuperUser routes
+   f. Wire Razorpay config save to backend

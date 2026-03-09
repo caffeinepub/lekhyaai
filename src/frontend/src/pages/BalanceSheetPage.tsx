@@ -13,9 +13,9 @@ import {
 } from "lucide-react";
 import { motion } from "motion/react";
 import { useState } from "react";
-import { InvoiceStatus } from "../backend.d";
 import { useBusiness } from "../context/BusinessContext";
 import { useExpenses, useInvoices, useProducts } from "../hooks/useQueries";
+import { InvoiceStatus } from "../types/backend-types";
 import { downloadCSV, printElementAsPdf } from "../utils/exportUtils";
 import { formatINRNumber } from "../utils/formatINR";
 

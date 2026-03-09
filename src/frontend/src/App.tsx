@@ -54,6 +54,10 @@ const PaymentCheckoutPage = lazy(() => import("./pages/PaymentCheckoutPage"));
 const DemoPage = lazy(() => import("./pages/DemoPage"));
 const CrmPage = lazy(() => import("./pages/CrmPage"));
 const ActivityLogPage = lazy(() => import("./pages/ActivityLogPage"));
+const SecurityMonitorPage = lazy(() => import("./pages/SecurityMonitorPage"));
+const RazorpayCheckoutPage = lazy(() => import("./pages/RazorpayCheckoutPage"));
+const PaymentTrackingPage = lazy(() => import("./pages/PaymentTrackingPage"));
+const TenantManagementPage = lazy(() => import("./pages/TenantManagementPage"));
 
 function PageLoader() {
   return (
@@ -394,6 +398,52 @@ const activityLogRoute = createRoute({
   ),
 });
 
+const securityMonitorRoute = createRoute({
+  getParentRoute: () => layoutRoute,
+  path: "/app/security-monitor",
+  component: () => (
+    <Suspense fallback={<PageLoader />}>
+      <RbacGuard module="settings">
+        <SecurityMonitorPage />
+      </RbacGuard>
+    </Suspense>
+  ),
+});
+
+const razorpayCheckoutRoute = createRoute({
+  getParentRoute: () => layoutRoute,
+  path: "/app/razorpay-checkout",
+  component: () => (
+    <Suspense fallback={<PageLoader />}>
+      <RazorpayCheckoutPage />
+    </Suspense>
+  ),
+});
+
+const paymentTrackingRoute = createRoute({
+  getParentRoute: () => layoutRoute,
+  path: "/app/payment-tracking",
+  component: () => (
+    <Suspense fallback={<PageLoader />}>
+      <RbacGuard module="settings">
+        <PaymentTrackingPage />
+      </RbacGuard>
+    </Suspense>
+  ),
+});
+
+const tenantManagementRoute = createRoute({
+  getParentRoute: () => layoutRoute,
+  path: "/app/tenant-management",
+  component: () => (
+    <Suspense fallback={<PageLoader />}>
+      <RbacGuard module="settings">
+        <TenantManagementPage />
+      </RbacGuard>
+    </Suspense>
+  ),
+});
+
 const routeTree = rootRoute.addChildren([
   layoutRoute.addChildren([
     dashboardRoute,
@@ -424,6 +474,10 @@ const routeTree = rootRoute.addChildren([
     demoRoute,
     crmRoute,
     activityLogRoute,
+    securityMonitorRoute,
+    razorpayCheckoutRoute,
+    paymentTrackingRoute,
+    tenantManagementRoute,
   ]),
 ]);
 
